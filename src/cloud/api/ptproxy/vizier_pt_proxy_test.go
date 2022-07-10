@@ -36,6 +36,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
@@ -78,7 +79,7 @@ func createTestState(t *testing.T) (*testState, func(t *testing.T)) {
 	eg.Go(func() error { return s.Serve(lis) })
 
 	ctx := context.Background()
-	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(createDialer(lis)), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(createDialer(lis)), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("Failed to dial bufnet: %v", err)
 	}
@@ -103,7 +104,7 @@ func createTestState(t *testing.T) (*testState, func(t *testing.T)) {
 }
 
 func createDialer(lis *bufconn.Listener) func(ctx context.Context, url string) (net.Conn, error) {
-	return func(ctx context.Context, url string) (conn net.Conn, e error) {
+	return func(ctx context.Context, url string) (net.Conn, error) {
 		return lis.Dial()
 	}
 }
@@ -786,29 +787,25 @@ func (v *fakeVzMgr) GetVizierConnectionInfo(ctx context.Context, in *uuidpb.UUID
 	}{
 		"00000000-1111-2222-2222-333333333333": {
 			&cvmsgspb.VizierConnectionInfo{
-				IPAddress: "1.1.1.1",
-				Token:     "abc0",
+				Token: "abc0",
 			},
 			nil,
 		},
 		"10000000-1111-2222-2222-333333333333": {
 			&cvmsgspb.VizierConnectionInfo{
-				IPAddress: "2.2.2.2",
-				Token:     "abc1",
+				Token: "abc1",
 			},
 			nil,
 		},
 		"20000000-1111-2222-2222-333333333333": {
 			&cvmsgspb.VizierConnectionInfo{
-				IPAddress: "3.3.3.3",
-				Token:     "abc2",
+				Token: "abc2",
 			},
 			nil,
 		},
 		"30000000-1111-2222-2222-333333333333": {
 			&cvmsgspb.VizierConnectionInfo{
-				IPAddress: "3.3.3.3",
-				Token:     "abc2",
+				Token: "abc2",
 			},
 			nil,
 		},

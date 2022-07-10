@@ -18,20 +18,27 @@
 
 import * as React from 'react';
 
-import { Button, Typography } from '@mui/material';
+import { gql, useQuery } from '@apollo/client';
 import { Theme } from '@mui/material/styles';
 import { createStyles, makeStyles } from '@mui/styles';
-import { Link, useRouteMatch, Route, Switch } from 'react-router-dom';
+import { useRouteMatch, Route, Switch } from 'react-router-dom';
 
-import { Footer, scrollbarStyles } from 'app/components';
+import { ClusterContext } from 'app/common/cluster-context';
+import { isPixieEmbedded } from 'app/common/embed-context';
+import { buildClass, Footer, scrollbarStyles } from 'app/components';
 import { usePluginList } from 'app/containers/admin/plugins/plugin-gql';
+import { selectClusterName } from 'app/containers/App/cluster-info';
+import { LiveRouteContext } from 'app/containers/App/live-routing';
 import NavBars from 'app/containers/App/nav-bars';
 import { SidebarContext } from 'app/context/sidebar-context';
-import { GQLPluginKind } from 'app/types/schema';
+import { GQLClusterInfo, GQLClusterStatus, GQLPluginKind } from 'app/types/schema';
+import { WithChildren } from 'app/utils/react-boilerplate';
 import * as pixienautCarryingBoxes from 'assets/images/pixienaut-carrying-boxes.svg';
 import { Copyright } from 'configurable/copyright';
+import { DataExportNoPluginsEnabledSplash } from 'configurable/data-export';
 
 import { EditDataExportScript } from './data-export-detail';
+import { DataExportHistoryView } from './data-export-history';
 import { ConfigureDataExportBody } from './data-export-tables';
 
 const useStyles = makeStyles((theme: Theme) => createStyles({
@@ -64,6 +71,9 @@ const useStyles = makeStyles((theme: Theme) => createStyles({
     flexFlow: 'column nowrap',
     overflow: 'auto',
   },
+  mainEmbedded: {
+    marginLeft: 0,
+  },
   mainBlock: {
     flex: '1 0 auto',
     position: 'relative',
@@ -85,29 +95,75 @@ const useStyles = makeStyles((theme: Theme) => createStyles({
       margin: `${theme.spacing(4)} 0`,
     },
   },
-  link: {
-    textDecoration: 'none',
-    '&, &:visited': {
-      color: theme.palette.primary.main,
-    },
-    '&:hover': {
-      textDecoration: 'underline',
-    },
-  },
 }), { name: 'ConfigureDataExportView' });
 
-const ConfigureDataExportPage = React.memo(({ children }) => {
+// Sidebar navigation links for Live scripts need a cluster that's usually in the URL.
+// Since this isn't the live view, we need to provide that context manually.
+// Only the embed state and the cluster name actually get used; the rest can be empty values.
+const ExtraNavContext = React.memo<WithChildren>(({ children }) => {
+  const { data } = useQuery<{
+    clusters: Pick<GQLClusterInfo, 'clusterName' | 'status'>[]
+  }>(
+    gql`
+      query listClustersForDataExportRouting {
+        clusters {
+          id
+          clusterName
+          status
+        }
+      }
+    `,
+    { fetchPolicy: 'cache-first' },
+  );
+
+  const defaultCluster = React.useMemo(() => selectClusterName(data?.clusters ?? []), [data?.clusters]);
+
+  return (
+    // eslint-disable-next-line react-memo/require-usememo
+    <LiveRouteContext.Provider value={{
+      embedState: { disableTimePicker: false, widget: null },
+      clusterName: '',
+      scriptId: '',
+      args: {},
+    }}>
+      {/* eslint-disable-next-line react-memo/require-usememo */}
+      <ClusterContext.Provider value={{
+        loading: false,
+        selectedClusterID: '',
+        selectedClusterName: defaultCluster ?? '',
+        selectedClusterPrettyName: '',
+        selectedClusterStatus: GQLClusterStatus.CS_UNKNOWN,
+        selectedClusterStatusMessage: '',
+        selectedClusterUID: '',
+        setClusterByName: () => {},
+      }}>
+        {children}
+      </ClusterContext.Provider>
+    </LiveRouteContext.Provider>
+  );
+});
+ExtraNavContext.displayName = 'ExtraNavContext';
+
+const ConfigureDataExportPage = React.memo<WithChildren<{
+  scrollRef: React.MutableRefObject<HTMLDivElement>,
+}>>(({ children, scrollRef }) => {
   const classes = useStyles();
+  const isEmbedded = isPixieEmbedded();
+
   return (
     <div className={classes.root}>
-      <SidebarContext.Provider value={{ showLiveOptions: false, showAdmin: true }}>
-        <NavBars>
-          <div className={classes.title}>
-            <div className={classes.titleText}>Long-term Data Export</div>
-          </div>
-        </NavBars>
-      </SidebarContext.Provider>
-      <div className={classes.main}>
+      {!isEmbedded && (
+        <ExtraNavContext>
+          <SidebarContext.Provider value={{ showLiveOptions: false, showAdmin: true }}>
+            <NavBars>
+              <div className={classes.title}>
+                <div className={classes.titleText}>Long-term Data Export</div>
+              </div>
+            </NavBars>
+          </SidebarContext.Provider>
+        </ExtraNavContext>
+      )}
+      <div className={buildClass(classes.main, isEmbedded && classes.mainEmbedded)} ref={scrollRef}>
         <div className={classes.mainBlock}>
           {children}
         </div>
@@ -122,19 +178,11 @@ ConfigureDataExportPage.displayName = 'ConfigureDataExportPage';
 
 const NoPluginsEnabledSplash = React.memo(() => {
   const classes = useStyles();
+  const isEmbedded = isPixieEmbedded();
   return (
     <div className={classes.splashBlock}>
       <img src={pixienautCarryingBoxes} alt='Long-term Data Export Setup' />
-      <Typography variant='body2'>
-        Pixie only guarantees data retention for 24 hours.
-        <br />
-        {'Configure a '}
-        <Link to='/admin/plugins' className={classes.link}>plugin</Link>
-        {' to export and store Pixie data for longer term retention.'}
-        <br />
-        This data will be accessible and queryable through the plugin provider.
-      </Typography>
-      <Button component={Link} to='/admin/plugins' variant='contained'>Configure Plugins</Button>
+      <DataExportNoPluginsEnabledSplash isEmbedded={isEmbedded} />
     </div>
   );
 });
@@ -142,25 +190,41 @@ NoPluginsEnabledSplash.displayName = 'NoPluginsEnabledSplash';
 
 export const ConfigureDataExportView = React.memo(() => {
   const { plugins } = usePluginList(GQLPluginKind.PK_RETENTION);
-  const { path } = useRouteMatch();
+  const { path } = useRouteMatch(); // Outer path - not affected by the sub-routes in the <Switch> below
+
+  const scrollRef = React.useRef<HTMLDivElement>();
+  const  [innerLoc, setInnerLoc] = React.useState(null);
+  React.useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [innerLoc?.pathname]);
 
   const isSplash = React.useMemo(() => (
     !plugins.some(p => p.supportsRetention && p.retentionEnabled)
   ), [plugins]);
 
   return (
-    <ConfigureDataExportPage>
-      <Switch>
-        <Route exact path={path}>
-          {isSplash ? <NoPluginsEnabledSplash /> : <ConfigureDataExportBody /> }
-        </Route>
-        <Route exact path={`${path}/create`}>
-          <EditDataExportScript scriptId='' isCreate={true} />
-        </Route>
-        <Route exact path={`${path}/update/:scriptId`}>
-          {({ match: { params } }) => <EditDataExportScript scriptId={params.scriptId} isCreate={false} />}
-        </Route>
-      </Switch>
+    <ConfigureDataExportPage scrollRef={scrollRef}>
+      <Route render={React.useCallback(({ location }) => {
+        // In a timeout to prevent updating one component while rendering another
+        setTimeout(() => setInnerLoc(location));
+
+        return (
+          <Switch>
+            <Route exact path={path}>
+              {isSplash ? <NoPluginsEnabledSplash /> : <ConfigureDataExportBody /> }
+            </Route>
+            <Route exact path={`${path}/create`}>
+              <EditDataExportScript scriptId='' isCreate={true} />
+            </Route>
+            <Route exact path={`${path}/update/:scriptId`}>
+              {({ match: { params } }) => <EditDataExportScript scriptId={params.scriptId} isCreate={false} />}
+            </Route>
+            <Route exact path={`${path}/logs/:scriptId`}>
+              {({ match: { params } }) => <DataExportHistoryView scriptId={params.scriptId} />}
+            </Route>
+          </Switch>
+        );
+      }, [isSplash, path])} />
     </ConfigureDataExportPage>
   );
 });

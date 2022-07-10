@@ -18,13 +18,16 @@
 
 import * as React from 'react';
 
+import { ApolloError } from '@apollo/client';
 import {
   Autocomplete,
+  AutocompleteRenderGetTagProps,
   Box,
   Button,
+  Chip,
   FormControl,
+  FormHelperText,
   Input,
-  InputAdornment,
   InputLabel,
   MenuItem,
   Paper,
@@ -37,32 +40,35 @@ import { Theme, useTheme } from '@mui/material/styles';
 import { createStyles, makeStyles } from '@mui/styles';
 import { useHistory } from 'react-router';
 
-import { CodeEditor, EDITOR_THEME_MAP, useSnackbar } from 'app/components';
+import { CodeEditor, EDITOR_THEME_MAP, StatusCell, StatusGroup, useSnackbar } from 'app/components';
 import { usePluginConfig } from 'app/containers/admin/plugins/plugin-gql';
 import { GQLClusterStatus, GQLEditableRetentionScript } from 'app/types/schema';
 import { AutoSizerContext, withAutoSizerContext } from 'app/utils/autosizer';
 
+import { PluginIcon } from './data-export-common';
 import {
   ClusterInfoForRetentionScripts,
   DEFAULT_RETENTION_PXL,
-  PartialPlugin,
   useClustersForRetentionScripts,
   useCreateRetentionScript,
   useMutateRetentionScript,
   useRetentionPlugins,
   useRetentionScript,
+  useRetentionScripts,
 } from './data-export-gql';
 
-const useStyles = makeStyles(({ spacing, typography }: Theme) => createStyles({
+const useStyles = makeStyles(({ breakpoints, spacing, typography }: Theme) => createStyles({
   root: {
     display: 'flex',
     flexFlow: 'column nowrap',
     justifyContent: 'flex-start',
     alignItems: 'stretch',
-    margin: spacing(2),
-    paddingBottom: spacing(2),
     minHeight: '100%',
     maxHeight: '100%',
+    paddingBottom: spacing(2),
+    margin: `${spacing(2)} auto`,
+    maxWidth: `${breakpoints.values.md}px`,
+    width: '100%',
 
     '& > .MuiPaper-root': {
       padding: spacing(2),
@@ -75,6 +81,7 @@ const useStyles = makeStyles(({ spacing, typography }: Theme) => createStyles({
     justifyContent: 'space-between',
   },
   descriptionContainer: {
+    marginTop: spacing(4),
     flex: '0 0 auto',
     display: 'flex',
     justifyContent: 'stretch',
@@ -144,6 +151,7 @@ const RetentionScriptEditorInner = React.memo<RetentionScriptEditorProps>(({
         language='python'
         theme={EDITOR_THEME_MAP[theme.palette.mode]}
         isReadOnly={isReadOnly}
+        readOnlyReason='PxL for preset scripts cannot be edited'
       />
     </div>
   );
@@ -170,33 +178,61 @@ function useCreateOrUpdateScript(scriptId: string, isCreate: boolean) {
   ), [scriptId, isCreate, create, update]);
 }
 
-function useAllowCustomExportURL(plugin: PartialPlugin | null) {
-  const { loading, schema } = usePluginConfig(plugin ?? { id: '', latestVersion: '' });
-  return !loading && schema?.allowCustomExportURL === true;
-}
+const ClusterOption = React.memo<{ props: any, cluster: ClusterInfoForRetentionScripts }>(({ props, cluster }) => {
+  return (
+    <li key={`option-${cluster.id}`} {...props}>
+      <StatusCell statusGroup={cluster.status.replace('CS_', '').toLowerCase() as StatusGroup}/>
+      {/* eslint-disable-next-line react-memo/require-usememo */}
+      <Box sx={{ display: 'inline-block', ml: 1 }}>{cluster.prettyClusterName}</Box>
+    </li>
+  );
+});
+ClusterOption.displayName = 'ClusterOption';
+
+const SelectedClusterChips = React.memo<{
+  clusters: ClusterInfoForRetentionScripts[],
+  getTagProps: AutocompleteRenderGetTagProps,
+}>(({
+  clusters, getTagProps,
+}) => (
+  /* eslint-disable react-memo/require-usememo */
+  <>{clusters.map((cluster, index) => (
+    <Chip key={`chip-${cluster.id}`} {...getTagProps({ index })} sx={{ mr: 1 }} label={(
+      <Box sx={{ display: 'flex', flexFlow: 'row nowrap', alignItems: 'center' }}>
+        <StatusCell statusGroup={cluster.status.replace('CS_', '').toLowerCase() as StatusGroup}/>
+        <Box sx={{ ml: 1 }}>{cluster.prettyClusterName}</Box>
+      </Box>
+    )}/>
+  ))}</>
+  /* eslint-enable react-memo/require-usememo */
+));
+SelectedClusterChips.displayName = 'SelectedClusterChips';
 
 export const EditDataExportScript = React.memo<{ scriptId: string, isCreate: boolean }>(({ scriptId, isCreate }) => {
   const classes = useStyles();
   const showSnackbar = useSnackbar();
 
   const history = useHistory();
-  const backToTop = React.useCallback(() => {
+  const navBackToAllScripts = React.useCallback(() => {
     history.push('/configure-data-export');
   }, [history]);
 
   const { clusters } = useClustersForRetentionScripts();
   const { plugins } = useRetentionPlugins();
+  const { scripts: existingScripts } = useRetentionScripts();
   const { script } = useRetentionScript(scriptId);
+
+  const takenScriptNames = React.useMemo(() => existingScripts.map(s => s.name), [existingScripts]);
 
   const enabledPlugins = React.useMemo(() => (plugins?.filter(p => p.retentionEnabled) ?? []), [plugins]);
 
   const createOrUpdate = useCreateOrUpdateScript(scriptId, isCreate);
 
   const validClusters = React.useMemo(() => {
-    return clusters.filter(
-      c => c.status !== GQLClusterStatus.CS_DISCONNECTED,
+    return clusters?.filter(
+      c => c.status !== GQLClusterStatus.CS_DISCONNECTED || script?.clusters.includes(c.id),
     ) ?? [];
-  }, [clusters]);
+  }, [clusters, script?.clusters]);
 
   const [pendingValues, setFullPendingValues] = React.useState<RetentionScriptForm>({
     name: '',
@@ -208,21 +244,34 @@ export const EditDataExportScript = React.memo<{ scriptId: string, isCreate: boo
     exportPath: '',
   });
 
-  const allowCustomExportURL = useAllowCustomExportURL(
-    enabledPlugins.find(p => p.id === pendingValues.pluginID),
+  const { schema, values } = usePluginConfig(
+    enabledPlugins.find(p => p.id === pendingValues.pluginID) ?? { id: '', enabledVersion: '', latestVersion: '' },
   );
+  const allowCustomExportURL = schema?.allowCustomExportURL === true;
+  const defaultExportURL = values?.customExportURL || schema?.defaultExportURL || '';
+
+  const [dirty, setDirty] = React.useState(false);
 
   const setPendingField = React.useCallback(<K extends keyof RetentionScriptForm>(
     field: K,
     value: RetentionScriptForm[K],
   ) => {
-    setFullPendingValues((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    let newlyDirty = false;
+    setFullPendingValues((prev) => {
+      if (prev[field] === value) {
+        return prev;
+      }
+      newlyDirty = true;
+      return {
+        ...prev,
+        [field]: value,
+      };
+    });
+    if (newlyDirty) setDirty(true);
   }, []);
 
   React.useEffect(() => {
+    setDirty(false);
     setFullPendingValues({
       name: script?.name ?? '',
       description: script?.description ?? '',
@@ -235,23 +284,38 @@ export const EditDataExportScript = React.memo<{ scriptId: string, isCreate: boo
   }, [isCreate, script, validClusters]);
 
   const [saving, setSaving] = React.useState(false);
-  const [valid, setValid] = React.useState(true);
-  const save = React.useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const nowValid = pendingValues.name.trim().length
+  const valid = React.useMemo(() => (
+    pendingValues.name.trim().length
+      && (pendingValues.name.trim() === script?.name || !takenScriptNames.includes(pendingValues.name.trim()))
       && pendingValues.clusters != null
       && pendingValues.clusters.every(c => validClusters.some(v => v.id === c.id))
       && pendingValues.contents != null
       && pendingValues.frequencyS > 0
       && pendingValues.pluginID
       && enabledPlugins.some(p => p.id === pendingValues.pluginID)
-      && pendingValues.exportPath != null;
-    setValid(nowValid);
+      && pendingValues.exportPath != null
+  ), [
+    enabledPlugins, pendingValues.clusters, pendingValues.contents, pendingValues.exportPath, pendingValues.frequencyS,
+    pendingValues.name, pendingValues.pluginID, takenScriptNames, validClusters, script?.name,
+  ]);
 
-    if (saving || !nowValid) return;
+  const nameErrorText = React.useMemo(() => {
+    const name = pendingValues.name.trim();
+    if (dirty && !name.length) {
+      return 'Script needs a name';
+    } else if (name !== script?.name && takenScriptNames.includes(name)) {
+      return 'That name is already in use';
+    }
+    return ' ';
+  }, [pendingValues.name, dirty, script?.name, takenScriptNames]);
+
+  const save = React.useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (saving || !valid) return;
     setSaving(true);
+
     const newScript: GQLEditableRetentionScript = {
       name: pendingValues.name.trim(),
       description: pendingValues.description.trim(),
@@ -263,136 +327,150 @@ export const EditDataExportScript = React.memo<{ scriptId: string, isCreate: boo
       customExportURL: pendingValues.exportPath,
     };
     createOrUpdate(newScript)
-      .then((res: string | boolean) => {
+      .then((res: string | boolean | ApolloError) => {
         setSaving(false);
-        let message = '';
-        if (typeof res === 'boolean') {
-          message = res ? 'Retention script saved successfully.' : 'Failed to save retention script, unknown reason.';
+
+        // Result is a string with the script's ID if created; `true` if it updated an existing one;
+        // `false` if it failed for an unknown reason; and an ApolloError if it failed for a known reason.
+        const created = (typeof res === 'string' && res.length);
+        const updated = res === true;
+
+        if (created || updated) {
+          const message = created ? 'Script created!' : 'Retention script saved successfully';
+          showSnackbar({ message });
+          navBackToAllScripts();
         } else {
-          message = 'Script created!';
+          const failureReason = (typeof res !== 'object' || !res) ? 'Unknown reason' : res.message;
+          console.error('Failed to save retention script. Reason:', res);
+          showSnackbar({ message: `Failed to save retention script! Reason: ${failureReason}` });
         }
-        showSnackbar({
-          message,
-          actionTitle: 'Back to Scripts',
-          action: backToTop,
-        });
       })
       .catch(() => setSaving(false));
   }, [
-    pendingValues.name, pendingValues.description, pendingValues.clusters, pendingValues.contents,
-    pendingValues.frequencyS, pendingValues.pluginID, pendingValues.exportPath,
-    enabledPlugins, saving, createOrUpdate, validClusters, script?.enabled, showSnackbar, backToTop,
+    saving, valid, pendingValues.name, pendingValues.description, pendingValues.frequencyS, pendingValues.clusters,
+    pendingValues.contents, pendingValues.pluginID, pendingValues.exportPath, script?.enabled,
+    createOrUpdate, showSnackbar, navBackToAllScripts,
   ]);
 
   const labelProps = React.useMemo(() => ({ shrink: true }), []);
 
+  const fid = React.useId();
+
   return (
     /* eslint-disable react-memo/require-usememo */
     <form className={classes.root} onSubmit={save}>
-      <Paper className={classes.topControls}>
-        <TextField
-          required
-          error={!valid && !pendingValues.name.trim().length}
-          variant='standard'
-          disabled={script?.isPreset}
-          label='Script Name'
-          value={pendingValues.name}
-          onChange={(e) => setPendingField('name', e.target.value)}
-          InputLabelProps={labelProps}
-        />
-        <Box sx={{ flex: 1 }} />
-        <Autocomplete
-          sx={{ flex: 1 }}
-          multiple
-          filterSelectedOptions
-          options={validClusters}
-          getOptionLabel={(c) => c.prettyClusterName}
-          value={pendingValues.clusters}
-          onChange={(_, newVal) => (
-            setPendingField('clusters', newVal as ClusterInfoForRetentionScripts[])
-          )}
-          renderInput={params => (
-            <TextField
-              {...params}
-              variant='standard'
-              label='Clusters'
-              placeholder={pendingValues.clusters.length ? '' : 'All Clusters (Default)'}
-              InputLabelProps={labelProps}
-            />
-          )}
-        />
-      </Paper>
-      <Paper className={classes.descriptionContainer}>
-        <TextField
-          multiline
-          minRows={1}
-          maxRows={10}
-          variant='standard'
-          disabled={script?.isPreset}
-          label='Description'
-          value={pendingValues.description}
-          onChange={(e) => setPendingField('description', e.target.value)}
-          InputLabelProps={labelProps}
-        />
-      </Paper>
-      <Paper className={classes.scriptContainer}>
-        <span className={classes.scriptHeading}>PxL Script</span>
-        <div className={classes.editorOuter}>
-          <RetentionScriptEditor
-            initialValue={pendingValues.contents}
-            onChange={(v) => setPendingField('contents', v)}
-            isReadOnly={script?.isPreset}
-          />
-        </div>
-      </Paper>
+      <Typography variant='h1' sx={{ mb: 2 }}>
+        {isCreate ? 'Create Export Script' : (
+          script?.isPreset ? 'Edit Preset Export Script' : 'Edit Custom Export Script'
+        )}
+      </Typography>
       <Paper>
-        <Stack gap={2}>
-          <FormControl
-            // eslint-disable-next-line react-memo/require-usememo
-            sx={{ width: '25ch' }}
-            variant='standard'
+        <div className={classes.topControls}>
+          <TextField
+            sx={{ width: '40ch' }}
             required
-            error={!valid && !(pendingValues.frequencyS > 0)}
-          >
-            <InputLabel htmlFor='script-frequency-input'>Summary Window</InputLabel>
-            <Input
-              id='script-frequency-input'
-              type='number'
-              inputProps={{ min: 1, step: 1 }}
-              value={pendingValues.frequencyS}
-              onChange={(e) => setPendingField('frequencyS', +e.target.value)}
-              endAdornment={
-                // TODO(nick,PC-1440): Seconds/minutes/whatever selector here for convenience
-                <InputAdornment position='end'>Seconds</InputAdornment>
-              }
-            />
-          </FormControl>
+            error={nameErrorText !== ' '}
+            helperText={nameErrorText}
+            variant='standard'
+            disabled={script?.isPreset}
+            label='Script Name'
+            value={pendingValues.name}
+            onChange={(e) => setPendingField('name', e.target.value)}
+            InputLabelProps={labelProps}
+          />
+          <Box sx={{ flex: 1 }} />
           <FormControl
-            sx={{ width: '25ch' }}
+            sx={{ width: '30ch' }}
             variant='standard'
             disabled={!isCreate}
             required={isCreate}
             error={!isCreate && !valid && !enabledPlugins.some(p => p.id === pendingValues.pluginID)}
           >
-            <InputLabel htmlFor='script-plugin-input'>Plugin</InputLabel>
+            <InputLabel htmlFor={`${fid}-plugin-id`}>
+              {isCreate || script?.isPreset ? 'Plugin' : 'Plugin (set on creation)'}
+            </InputLabel>
             <Select
-              id='script-plugin-input'
+              id={`${fid}-plugin-id`}
               value={pendingValues.pluginID}
               label='Plugin'
               onChange={(e) => setPendingField('pluginID', e.target.value)}
             >
               {enabledPlugins.map((plugin) => (
-                <MenuItem key={plugin.id} value={plugin.id}>{plugin.name}</MenuItem>
+                <MenuItem key={plugin.id} value={plugin.id}>
+                  <Box sx={{ display: 'flex', flexFlow: 'row nowrap', alignItems: 'center' }}>
+                    <PluginIcon iconString={plugin.logo ?? ''} />
+                    <span>{plugin.name}</span>
+                  </Box>
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
+        </div>
+        <div className={classes.descriptionContainer}>
+          <TextField
+            multiline
+            minRows={1}
+            maxRows={10}
+            variant='standard'
+            disabled={script?.isPreset}
+            label='Description'
+            value={pendingValues.description}
+            onChange={(e) => setPendingField('description', e.target.value)}
+            InputLabelProps={labelProps}
+          />
+        </div>
+      </Paper>
+      <Paper>
+        <Stack gap={4}>
+          <Autocomplete
+            sx={{ maxWidth: '100ch', minWidth: '40ch', width: 'max-content' }}
+            multiple
+            filterSelectedOptions
+            options={validClusters}
+            getOptionLabel={(c) => c.prettyClusterName}
+            renderOption={(props, c) => <ClusterOption key={c.id} props={props} cluster={c} />}
+            renderTags={(tagValue, getTagProps) => (
+              <SelectedClusterChips clusters={tagValue} getTagProps={getTagProps} />
+            )}
+            value={pendingValues.clusters}
+            onChange={(_, newVal) => (
+              setPendingField('clusters', newVal as ClusterInfoForRetentionScripts[])
+            )}
+            renderInput={params => (
+              <TextField
+                {...params}
+                variant='standard'
+                label='Clusters'
+                placeholder={pendingValues.clusters.length ? '' : 'All Clusters (Default)'}
+                InputLabelProps={labelProps}
+              />
+            )}
+          />
+          <FormControl
+            // eslint-disable-next-line react-memo/require-usememo
+            sx={{ width: 'max-content' }}
+            variant='standard'
+            required
+            error={!valid && !(pendingValues.frequencyS > 0)}
+          >
+            <InputLabel htmlFor={`${fid}-frequency-input`}>Summary Window (Seconds)</InputLabel>
+            <Input
+              id={`${fid}-frequency-input`}
+              type='number'
+              inputProps={{ min: 1, step: 1 }}
+              value={pendingValues.frequencyS}
+              onChange={(e) => setPendingField('frequencyS', +e.target.value)}
+            />
+            <FormHelperText>How frequently the script runs</FormHelperText>
+          </FormControl>
           <TextField
             disabled={!allowCustomExportURL}
-            sx={{ width: '25ch' }}
+            required={allowCustomExportURL && !defaultExportURL}
+            sx={{ width: '40ch' }}
             variant='standard'
-            label='Export Path'
+            label='Export URL'
             placeholder={allowCustomExportURL
-              ? 'Optional. Plugin-dependent.'
+              ? (defaultExportURL ? `Default: ${defaultExportURL}` : 'Required.')
               : 'Not available with this plugin.'
             }
             value={pendingValues.exportPath}
@@ -401,17 +479,29 @@ export const EditDataExportScript = React.memo<{ scriptId: string, isCreate: boo
           />
         </Stack>
       </Paper>
+      <Paper className={classes.scriptContainer}>
+        <span className={classes.scriptHeading}>
+          {script?.isPreset ? 'PxL Script (Read-Only)' : 'PxL Script'}
+        </span>
+        <div className={classes.editorOuter}>
+          <RetentionScriptEditor
+            initialValue={pendingValues.contents}
+            onChange={(v) => setPendingField('contents', v)}
+            isReadOnly={script?.isPreset}
+          />
+        </div>
+      </Paper>
       <Box width={1} textAlign='right'>
-        <Button variant='outlined' type='button' color='primary' onClick={backToTop} sx={{ mr: 1 }}>
+        <Button variant='outlined' type='button' color='primary' onClick={navBackToAllScripts} sx={{ mr: 1 }}>
           Cancel
         </Button>
-        <Button variant='contained' type='submit' disabled={saving || !valid} color={valid ? 'primary' : 'error'}>
+        <Button variant='contained' type='submit' disabled={saving || !valid}>
           {isCreate ? 'Create' : 'Save'}
         </Button>
-        {!valid && (
-          <Typography variant='caption' sx={{ color: 'error' }}>Please fill in all required fields.</Typography>
-        )}
       </Box>
+      <Typography variant='caption' sx={{ color: 'error', textAlign: 'right', mt: 1 }}>
+        {!valid ? 'Please check all required fields.' : <>&nbsp;</>}
+      </Typography>
     </form>
     /* eslint-enable react-memo/require-usememo */
   );

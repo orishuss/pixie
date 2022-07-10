@@ -25,10 +25,11 @@ import { Theme } from '@mui/material/styles';
 import { createStyles, makeStyles } from '@mui/styles';
 
 import { Footer } from 'app/components';
+import { WithChildren } from 'app/utils/react-boilerplate';
 import * as pixieLogo from 'assets/images/pixie-logo.svg';
 import { Copyright } from 'configurable/copyright';
 
-import * as StarsPNG from './stars.png';
+import StarsPNG from './stars.png';
 
 const useStyles = makeStyles(({ spacing, breakpoints }: Theme) => createStyles({
   root: {
@@ -71,7 +72,7 @@ const useStyles = makeStyles(({ spacing, breakpoints }: Theme) => createStyles({
   },
 }), { name: 'AuthPage' });
 
-export const BasePage: React.FC = React.memo(({ children }) => {
+export const BasePage: React.FC<WithChildren> = React.memo(({ children }) => {
   const classes = useStyles();
   return (
     <div className={classes.root}>

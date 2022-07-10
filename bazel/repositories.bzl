@@ -106,30 +106,33 @@ def _com_llvm_lib():
     native.new_local_repository(
         name = "com_llvm_lib",
         build_file = "bazel/external/llvm.BUILD",
-        path = "/opt/clang-13.0",
+        path = "/opt/clang-14.0",
     )
 
     native.new_local_repository(
         name = "com_llvm_lib_libcpp",
         build_file = "bazel/external/llvm.BUILD",
-        path = "/opt/clang-13.0-libc++",
+        path = "/opt/clang-14.0-libc++",
     )
 
 def _cc_deps():
     # Dependencies with native bazel build files.
-    _bazel_repo("com_google_protobuf", patches = ["//bazel/external:protobuf.patch", "//bazel/external:protobuf_text_format.patch"], patch_args = ["-p1"])
-    _bazel_repo("com_github_grpc_grpc", patches = ["//bazel/external:grpc.patch"], patch_args = ["-p1"])
-    _bazel_repo("com_google_benchmark")
+
+    _bazel_repo("com_google_protobuf", patches = ["//bazel/external:protobuf.patch", "//bazel/external:protobuf_gogo_hack.patch", "//bazel/external:protobuf_text_format.patch", "//bazel/external:protobuf_warning.patch"], patch_args = ["-p1"])
+    _bazel_repo("com_github_grpc_grpc", patches = ["//bazel/external:grpc.patch", "//bazel/external:grpc_mirror.patch", "//bazel/external:grpc_go_toolchain.patch", "//bazel/external:grpc_test_visibility.patch", "//bazel/external:grpc_warnings.patch"], patch_args = ["-p1"])
+
+    _bazel_repo("com_google_benchmark", patches = ["//bazel/external:benchmark_unused_variable.patch"], patch_args = ["-p1"])
     _bazel_repo("com_google_googletest")
     _bazel_repo("com_github_gflags_gflags")
     _bazel_repo("com_github_google_glog")
     _bazel_repo("com_google_absl")
     _bazel_repo("com_google_flatbuffers")
-    _bazel_repo("org_tensorflow")
+    _bazel_repo("org_tensorflow", patches = ["//bazel/external:tensorflow.patch"], patch_args = ["-p1"])
     _bazel_repo("com_github_neargye_magic_enum")
     _bazel_repo("com_github_thoughtspot_threadstacks")
-    _bazel_repo("com_github_google_re2")
+    _bazel_repo("com_googlesource_code_re2", patches = ["//bazel/external:re2_warning.patch"], patch_args = ["-p1"])
     _bazel_repo("com_google_boringssl")
+    _bazel_repo("com_intel_tbb")
 
     # Remove the pull and push directory since they depends on civet and we don't
     # want to pull in the dependency for now.
@@ -156,7 +159,6 @@ def _cc_deps():
     _bazel_repo("com_github_pgcodekeeper_pgcodekeeper", build_file = "//bazel/external:pgsql_grammar.BUILD", patches = ["//bazel/external:pgsql_grammar.patch"], patch_args = ["-p1"])
     _bazel_repo("com_github_simdutf_simdutf", build_file = "//bazel/external:simdutf.BUILD")
     _bazel_repo("com_github_USCiLab_cereal", build_file = "//bazel/external:cereal.BUILD")
-    _bazel_repo("com_intel_tbb", build_file = "//bazel/external:tbb.BUILD")
     _bazel_repo("com_google_farmhash", build_file = "//bazel/external:farmhash.BUILD")
     _bazel_repo("com_github_h2o_picohttpparser", build_file = "//bazel/external:picohttpparser.BUILD")
     _bazel_repo("com_github_opentelemetry_proto", build_file = "//bazel/external:opentelemetry.BUILD")
@@ -175,7 +177,7 @@ def _cc_deps():
     _include_all_repo("com_github_gperftools_gperftools")
     _include_all_repo("com_github_nats_io_natsc", patches = ["//bazel/external:natsc.patch"], patch_args = ["-p1"])
     _include_all_repo("com_github_libuv_libuv", patches = ["//bazel/external:libuv.patch"], patch_args = ["-p1"])
-    _include_all_repo("com_github_libarchive_libarchive")
+    _include_all_repo("com_github_libarchive_libarchive", patches = ["//bazel/external:libarchive.patch"], patch_args = ["-p1"])
 
 def _list_pl_deps(name):
     repo_urls = list()
@@ -205,8 +207,7 @@ def _list_pl_deps(name):
 def _pl_deps():
     _bazel_repo("bazel_skylib")
     _bazel_repo("bazel_gazelle")
-    _bazel_repo("distroless")
-    _bazel_repo("io_bazel_rules_go")
+    _bazel_repo("io_bazel_rules_go", patches = ["//bazel/external:rules_go.patch"], patch_args = ["-p1"])
     _bazel_repo("io_bazel_rules_scala")
     _bazel_repo("rules_jvm_external")
     _bazel_repo("rules_foreign_cc")
@@ -215,6 +216,7 @@ def _pl_deps():
     _bazel_repo("io_bazel_rules_docker")
     _bazel_repo("rules_python")
     _bazel_repo("com_github_bazelbuild_buildtools")
+    _bazel_repo("com_google_googleapis")
 
     _com_llvm_lib()
     _cc_deps()

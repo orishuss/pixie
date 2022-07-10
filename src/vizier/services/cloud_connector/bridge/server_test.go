@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 	batchv1 "k8s.io/api/batch/v1"
 
@@ -145,20 +146,7 @@ func (f *FakeVZChecker) GetStatus() (time.Time, error) {
 }
 
 type FakeVZInfo struct {
-	externalAddr    string
-	port            int32
 	lastClusterName string
-}
-
-func makeFakeVZInfo(externalAddr string, port int32) *FakeVZInfo {
-	return &FakeVZInfo{
-		externalAddr: externalAddr,
-		port:         port,
-	}
-}
-
-func (f *FakeVZInfo) GetAddress() (string, int32, error) {
-	return f.externalAddr, f.port, nil
 }
 
 func (f *FakeVZInfo) UpdateClusterIDAnnotation(string) error {
@@ -264,7 +252,7 @@ type testState struct {
 }
 
 func createDialer(lis *bufconn.Listener) func(ctx context.Context, url string) (net.Conn, error) {
-	return func(ctx context.Context, url string) (conn net.Conn, e error) {
+	return func(ctx context.Context, url string) (net.Conn, error) {
 		return lis.Dial()
 	}
 }
@@ -279,7 +267,7 @@ func makeTestState(t *testing.T) (*testState, func(t *testing.T)) {
 	eg.Go(func() error { return s.Serve(lis) })
 
 	ctx := context.Background()
-	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(createDialer(lis)), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(createDialer(lis)), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("Got an error during GRPC setup: %+v", err)
 	}
@@ -320,7 +308,7 @@ func TestNATSGRPCBridgeTest_CorrectRegistrationFlow(t *testing.T) {
 	ts.wg.Add(1)
 
 	sessionID := time.Now().UnixNano()
-	b := bridge.New(ts.vzID, "", ts.jwt, "", sessionID, ts.vzClient, makeFakeVZInfo("foobar", 123), &FakeVZOperatorInfo{}, ts.nats, &FakeVZChecker{}, nil)
+	b := bridge.New(ts.vzID, "", ts.jwt, "", sessionID, ts.vzClient, &FakeVZInfo{}, &FakeVZOperatorInfo{}, ts.nats, &FakeVZChecker{}, nil)
 	defer b.Stop()
 	go b.RunStream()
 
@@ -341,7 +329,6 @@ func TestNATSGRPCBridgeTest_CorrectRegistrationFlow(t *testing.T) {
 	}
 	assert.Equal(t, utils.ProtoToUUIDStr(registerMsg.VizierID), ts.vzID.String())
 	assert.Equal(t, registerMsg.JwtKey, ts.jwt)
-	assert.Equal(t, registerMsg.Address, "foobar")
 	assert.Equal(t, "test-cluster", registerMsg.ClusterInfo.ClusterName)
 	assert.Equal(t, "084cb5f0-ff69-11e9-a63e-42010a8a0193", registerMsg.ClusterInfo.ClusterUID)
 }
@@ -355,7 +342,7 @@ func TestNATSGRPCBridgeTest_TestOutboundNATSMessage(t *testing.T) {
 	ts.wg.Add(1)
 
 	sessionID := time.Now().UnixNano()
-	b := bridge.New(ts.vzID, "", ts.jwt, "", sessionID, ts.vzClient, makeFakeVZInfo("foobar", 123), &FakeVZOperatorInfo{}, ts.nats, &FakeVZChecker{}, nil)
+	b := bridge.New(ts.vzID, "", ts.jwt, "", sessionID, ts.vzClient, &FakeVZInfo{}, &FakeVZOperatorInfo{}, ts.nats, &FakeVZChecker{}, nil)
 	defer func() {
 		b.Stop()
 	}()
@@ -413,7 +400,7 @@ func TestNATSGRPCBridgeTest_TestInboundNATSMessage(t *testing.T) {
 	ts.wg.Add(1)
 
 	sessionID := time.Now().UnixNano()
-	b := bridge.New(ts.vzID, "", ts.jwt, "", sessionID, ts.vzClient, makeFakeVZInfo("foobar", 123), &FakeVZOperatorInfo{}, ts.nats, &FakeVZChecker{}, nil)
+	b := bridge.New(ts.vzID, "", ts.jwt, "", sessionID, ts.vzClient, &FakeVZInfo{}, &FakeVZOperatorInfo{}, ts.nats, &FakeVZChecker{}, nil)
 	defer b.Stop()
 
 	go b.RunStream()
@@ -485,7 +472,7 @@ func TestNATSGRPCBridgeTest_TestRegisterDeployment(t *testing.T) {
 
 	vzID := uuid.FromStringOrNil("")
 
-	vzInfo := makeFakeVZInfo("foo", 123)
+	vzInfo := &FakeVZInfo{}
 	sessionID := time.Now().UnixNano()
 	b := bridge.New(vzID, "", ts.jwt, "", sessionID, ts.vzClient, vzInfo, &FakeVZOperatorInfo{}, ts.nats, &FakeVZChecker{}, nil)
 	defer b.Stop()

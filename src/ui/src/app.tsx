@@ -18,18 +18,13 @@
 
 import * as React from 'react';
 
-import { CssBaseline } from '@mui/material';
 import {
-  Theme,
-  ThemeProvider,
   StyledEngineProvider,
-  createTheme,
 } from '@mui/material/styles';
-import { deepmerge } from '@mui/utils';
 import Axios from 'axios';
 import { withLDProvider } from 'launchdarkly-react-client-sdk';
 import * as QueryString from 'query-string';
-import * as ReactDOM from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import { useLocation } from 'react-router';
 import {
   Redirect, RedirectProps, Route, Router, Switch,
@@ -37,21 +32,13 @@ import {
 
 import { PixieAPIContext, PixieAPIContextProvider } from 'app/api';
 import { AuthContextProvider, AuthContext } from 'app/common/auth-context';
-import { EmbedContext, EmbedContextProvider } from 'app/common/embed-context';
-import {
-  DARK_BASE,
-  DARK_THEME,
-  LIGHT_THEME,
-  addSyntaxToPalette,
-  SnackbarProvider,
-  VersionInfo,
-} from 'app/components';
+import { EmbedContext, EmbedContextProvider, isPixieEmbedded } from 'app/common/embed-context';
+import { SnackbarProvider } from 'app/components';
 import Live from 'app/containers/App/live';
 import { LD_CLIENT_ID } from 'app/containers/constants';
 import { AuthRouter } from 'app/pages/auth/auth';
 import CreditsView from 'app/pages/credits/credits';
-import { makeCancellable, silentlyCatchCancellation } from 'app/utils/cancellable-promise';
-import { isProd, PIXIE_CLOUD_VERSION } from 'app/utils/env';
+import { makeCancellable } from 'app/utils/cancellable-promise';
 import { ErrorBoundary, PixienautCrashFallback } from 'app/utils/error-boundary';
 import { parseJWT } from 'app/utils/jwt';
 import history from 'app/utils/pl-history';
@@ -60,6 +47,8 @@ import { PixieCookieBanner } from 'configurable/cookie-banner';
 
 import 'typeface-roboto';
 import 'typeface-roboto-mono';
+import { ThemeSelectionContextProvider } from './components/theme-selector/theme-selector';
+import { PixieThemeContext, PixieThemeContextProvider } from './context/pixie-theme-context';
 
 // This side-effect-only import has to be a `require`, or else it gets erroneously optimized away during compilation.
 require('./wdyr');
@@ -99,7 +88,6 @@ function useIsAuthenticated() {
       .then((isAuthenticated) => {
         setState({ loading: false, authenticated: isAuthenticated, error: undefined });
       })
-      .catch(silentlyCatchCancellation)
       .catch((e) => {
         setState({ loading: false, authenticated: false, error: e });
       });
@@ -120,12 +108,41 @@ function getAuthRedirectLocation(): string {
   return authRedirectUri ? `/login?redirect_uri=${authRedirectUri}` : '/login';
 }
 
+/* eslint-disable react-memo/require-memo, react-memo/require-usememo */
+/**
+ * Forces Pixie to prefix the URL with `/embed` if (and only if) rendered in an iframe.
+ * This avoids having to consider that rule in links throughout the app, and makes troubleshooting logs easier.
+ * It also ensures that if an embedded Pixie accidentally links to another view that doesn't have an embed route,
+ * a 404 will happen instead of breaking embed logic.
+ */
+const EmbedRedirector = () => {
+  return <Route path='/*' render={
+    ({ location }) => {
+      const rel = location.pathname;
+      const isEmbedded = isPixieEmbedded();
+      const saysEmbedded = /^\/?embed\b/.test(rel);
+
+      let next = '';
+      if (isEmbedded && !saysEmbedded) next = `/embed/${rel}`.replace('//', '/');
+      else if (!isEmbedded && saysEmbedded) next = rel.substring(Number(rel.startsWith('/')) + 'embed'.length);
+
+      if (next) {
+        return <Redirect to={next + (location.search || '')} />;
+      }
+
+      return <></>;
+    }
+  } />;
+};
+EmbedRedirector.displayName = 'EmbedRedirector';
+/* eslint-enable react-memo/require-memo, react-memo/require-usememo */
+
 // eslint-disable-next-line react-memo/require-memo
 export const App: React.FC = () => {
   const { authenticated, loading } = useIsAuthenticated();
   const { authToken } = React.useContext(AuthContext);
 
-  const isEmbedded = window.location.pathname.startsWith('/embed');
+  const isEmbedded = isPixieEmbedded();
 
   // If in an embedded environment, we need to wait until the authToken has been sent over from the parent.
   // While there is no authToken, we should not render the page, as all GQL requests will fail.
@@ -139,6 +156,8 @@ export const App: React.FC = () => {
     <ErrorBoundary name='App' fallback={PixienautCrashFallback}>
       <SnackbarProvider>
         <Router history={history}>
+          {/* Outside of the switch so that it always has a chance to force a redirect */}
+          <EmbedRedirector />
           <Switch>
             <Route path='/credits' component={CreditsView} />
             <Route path='/auth' component={AuthRouter} />
@@ -155,7 +174,6 @@ export const App: React.FC = () => {
             }
           </Switch>
         </Router>
-        {!isProd() ? <VersionInfo cloudVersion={PIXIE_CLOUD_VERSION} /> : null}
       </SnackbarProvider>
       <PixieCookieBanner />
     </ErrorBoundary>
@@ -171,37 +189,8 @@ const FlaggedApp = LD_CLIENT_ID !== ''
 const ThemedApp: React.FC = () => {
   const { setAuthToken } = React.useContext(AuthContext);
   const { setTimeArg } = React.useContext(EmbedContext);
-  const [theme, setTheme] = React.useState<Theme>(DARK_THEME);
+  const { setThemeFromName, parseAndSetTheme } = React.useContext(PixieThemeContext);
   const [embedToken, setEmbedToken] = React.useState<string>('');
-
-  const setThemeFromName = React.useCallback((themeName) => {
-    switch (themeName) {
-      case 'light':
-        setTheme(LIGHT_THEME);
-        break;
-      default:
-        setTheme(DARK_THEME);
-    }
-  }, [setTheme]);
-
-  const parseAndSetTheme = React.useCallback((customTheme: string) => {
-    // Try to parse theme and apply.
-    try {
-      const parsedTheme = JSON.parse(customTheme);
-      // Only use the `palette` field from the theme, as we know these
-      // values are safe to apply. Base atop the dark theme.
-      setTheme(createTheme({
-        ...DARK_BASE,
-        ...{
-          palette: addSyntaxToPalette(deepmerge(DARK_THEME.palette, parsedTheme.palette, { clone: true })),
-          shadows: deepmerge(DARK_THEME.shadows, parsedTheme.shadows, { clone: true }),
-        },
-      }));
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to parse MUI theme');
-    }
-  }, [setTheme]);
 
   // Parse query params to determine initial state of the page. These
   // params can also be set by the parent view, in an embedded context.
@@ -211,12 +200,11 @@ const ThemedApp: React.FC = () => {
       customTheme,
     } = QueryString.parse(window.location.search);
 
-    if (themeParam) {
-      const themeName = Array.isArray(themeParam) ? themeParam[0] : themeParam;
-      setThemeFromName(themeName);
-    }
     if (customTheme) {
-      parseAndSetTheme(Array.isArray(customTheme) ? customTheme[0] : customTheme);
+      parseAndSetTheme([customTheme].flat()[0]);
+    } else if (themeParam) {
+      const themeName = String([themeParam].flat()[0]).toLowerCase();
+      setThemeFromName(themeName);
     }
   }, [parseAndSetTheme, setThemeFromName]);
 
@@ -300,19 +288,23 @@ const ThemedApp: React.FC = () => {
     }
   }, [embedToken, setEmbedToken, setAuthToken, setTimeArg, parseAndSetTheme, setThemeFromName]);
 
+  const [, setReadied] = React.useState(false);
   React.useEffect(() => {
     window.addEventListener('message', listener);
     // Send a message to the parent frame to inform it that Pixie is listening
     // for postMessages. We use top, to send it to the topmost window.
     // window.postMessage is not enough for a child to contact the parent.
-    window.top.postMessage({ pixieEmbedReady: true }, '*');
+    setReadied((prev) => {
+      if (!prev) window.top.postMessage({ pixieEmbedReady: true }, '*');
+      return true;
+    });
     return () => {
       window.removeEventListener('beforeunload', listener);
     };
   }, [listener]);
 
   const onUnauthorized = React.useCallback(() => {
-    const isEmbedded = window.location.pathname.startsWith('/embed');
+    const isEmbedded = isPixieEmbedded();
     const isLogin = window.location.pathname.endsWith('/login');
     if (!isEmbedded && !isLogin) {
       const path = window.location.origin + getAuthRedirectLocation();
@@ -323,23 +315,26 @@ const ThemedApp: React.FC = () => {
   }, []);
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <PixieAPIContextProvider apiKey='' onUnauthorized={onUnauthorized}>
-        <FlaggedApp />
-      </PixieAPIContextProvider>
-    </ThemeProvider>
+    <PixieAPIContextProvider apiKey='' onUnauthorized={onUnauthorized}>
+      <FlaggedApp />
+    </PixieAPIContextProvider>
   );
 };
 ThemedApp.displayName = 'ThemedApp';
 
-ReactDOM.render(
+const root = createRoot(document.getElementById('root'));
+root.render(
   <ErrorBoundary name='Root'>
     <StyledEngineProvider injectFirst>
       <AuthContextProvider>
         <EmbedContextProvider>
-          <ThemedApp />
+          <ThemeSelectionContextProvider>
+            <PixieThemeContextProvider>
+              <ThemedApp />
+            </PixieThemeContextProvider>
+          </ThemeSelectionContextProvider>
         </EmbedContextProvider>
       </AuthContextProvider>
     </StyledEngineProvider>
-  </ErrorBoundary>, document.getElementById('root'));
+  </ErrorBoundary>,
+);

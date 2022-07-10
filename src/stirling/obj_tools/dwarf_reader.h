@@ -319,6 +319,8 @@ class DwarfReader {
 
   // Records the source language of the DWARF information.
   llvm::dwarf::SourceLanguage source_language_;
+
+  // Records the name of the compiler that produces this file.
   std::string compiler_;
 
   std::unique_ptr<llvm::MemoryBuffer> memory_buffer_;

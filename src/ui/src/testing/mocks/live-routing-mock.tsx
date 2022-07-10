@@ -19,20 +19,20 @@
 import * as React from 'react';
 
 import { LiveRouteContext, LiveRouteContextProps } from 'app/containers/App/live-routing';
+import { WithChildren } from 'app/utils/react-boilerplate';
 
 export const LIVE_ROUTE_CONTEXT_DEFAULTS: LiveRouteContextProps = {
   clusterName: '',
   scriptId: '',
   args: {},
   embedState: {
-    isEmbedded: false,
     widget: null,
     disableTimePicker: false,
   },
 };
 
 // eslint-disable-next-line react-memo/require-memo
-export const MockLiveRouteContextProvider: React.FC = ({ children }) => (
+export const MockLiveRouteContextProvider: React.FC<WithChildren> = ({ children }) => (
   <LiveRouteContext.Provider value={LIVE_ROUTE_CONTEXT_DEFAULTS}>
     {children}
   </LiveRouteContext.Provider>

@@ -21,10 +21,14 @@ import * as React from 'react';
 import {
   Add as AddIcon,
   Delete as DeleteIcon,
-  Extension as ExtensionIcon,
-  Settings as SettingsIcon,
+  Edit as EditIcon,
+  History as HistoryIcon,
+  CheckCircle as SuccessIcon,
+  Warning as WarningIcon,
+  Report as ErrorIcon,
 } from '@mui/icons-material';
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -44,17 +48,16 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { styled, Theme } from '@mui/material/styles';
-import { createStyles, makeStyles } from '@mui/styles';
+import { styled } from '@mui/material/styles';
 import { distanceInWordsStrict } from 'date-fns';
 import { Link, useRouteMatch } from 'react-router-dom';
 
+import { isPixieEmbedded } from 'app/common/embed-context';
 import { Spinner, useSnackbar } from 'app/components';
-import {
-  GQLClusterStatus,
-  GQLRetentionScript,
-} from 'app/types/schema';
+import { GQLRetentionScript } from 'app/types/schema';
+import { hidePresetsForPlugin } from 'configurable/data-export';
 
+import { ExportStatusContext, ExportStatusContextProvider, PluginIcon } from './data-export-common';
 import {
   useClustersForRetentionScripts,
   useDeleteRetentionScript,
@@ -64,29 +67,59 @@ import {
   useToggleRetentionScript,
 } from './data-export-gql';
 
-// TODO(nick,PC-1440): Dedup <PluginIcon /> with Plugins page in Admin that already has a similar component
-const PluginIcon = React.memo<{ iconString: string }>(({ iconString }) => {
-  const looksValid = iconString?.includes('<svg');
-  if (looksValid) {
-    // Strip newlines and space that isn't required just in case
-    const compacted = iconString.trim().replace(/\s+/gm, ' ').replace(/\s*([><])\s*/g, '$1');
-    // fill="#fff", for instance, isn't safe without encoding the #.
-    const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(compacted)}`;
-    const backgroundImage = `url("${dataUrl}")`;
+const HistoryLink = React.memo<{ path: string, script: GQLRetentionScript }>(({ path, script }) => {
+  const { loading, unavailableClusters, status } = React.useContext(ExportStatusContext);
 
-    // eslint-disable-next-line react-memo/require-usememo
-    return <Box sx={({ spacing }) => ({
-      width: spacing(2.5),
-      height: spacing(2.5),
-      marginRight: spacing(1.5),
-      background: backgroundImage ? `center/contain ${backgroundImage} no-repeat` : 'none',
-    })} />;
-  }
+  const ready = !loading && status.has(script.id);
+  const state = React.useMemo(() => (ready ? status.get(script.id) : { pass: 0, fail: 0 }), [ready, script.id, status]);
+  const pct = state.pass / (state.pass + state.fail);
 
-  // eslint-disable-next-line react-memo/require-usememo
-  return <ExtensionIcon sx={{ mr: 2, fontSize: 'body1.fontSize' }} />;
+  const tooltip: React.ReactNode = React.useMemo(() => {
+    if (loading) {
+      return 'Loading export status...';
+    } else if (!ready) {
+      return (unavailableClusters > 0
+        ? 'Unknown status (some clusters did not reply)'
+        : 'Script has not run on any known cluster recently');
+    } else {
+      return (
+        <>
+          {Number.isNaN(pct) ? <p>No recent runs on any cluster</p> : (
+            <>
+              <p>
+                {'Script has run '}
+                <strong>{state.pass + state.fail} time{state.pass + state.fail === 1 ? '' : 's'}</strong>
+                {' recently.'}
+              </p>
+              <p><strong>{Math.round(pct * 100)}%</strong> succeeded.</p>
+            </>
+          )}
+          {unavailableClusters > 0 && (
+            <small>
+              {'Data may be incomplete. '}
+              {unavailableClusters} cluster{unavailableClusters === 1 ? '' : 's'} could not report stats.
+            </small>
+          )}
+        </>
+      );
+    }
+  }, [loading, ready, unavailableClusters, state, pct]);
+
+  return (
+    <Tooltip title={tooltip}>
+      <IconButton
+        component={Link}
+        to={`${path}/logs/${script.id}`}
+      >
+        {!ready && <HistoryIcon />}
+        {ready && pct < 0.5 && <ErrorIcon color='error' />}
+        {ready && pct >= 0.5 && pct < 1 && <WarningIcon color='warning' />}
+        {ready && pct === 1 && <SuccessIcon color='success' />}
+      </IconButton>
+    </Tooltip>
+  );
 });
-PluginIcon.displayName = 'PluginIcon';
+HistoryLink.displayName = 'HistoryLink';
 
 const RetentionScriptRow = React.memo<{ script: GQLRetentionScript }>(({ script }) => {
   const { path } = useRouteMatch();
@@ -95,12 +128,10 @@ const RetentionScriptRow = React.memo<{ script: GQLRetentionScript }>(({ script 
   const plugin = plugins.find(p => p.id === pluginID);
 
   const { clusters: allClusters } = useClustersForRetentionScripts();
-  const selectedClusterNames = React.useMemo(() => {
+  const selectedClusters = React.useMemo(() => {
     return allClusters
       .filter(
-        c => c.status !== GQLClusterStatus.CS_DISCONNECTED && selectedClusterIds?.includes(c.id),
-      ).map(
-        c => c.prettyClusterName,
+        c => selectedClusterIds?.includes(c.id),
       ) ?? [];
   }, [allClusters, selectedClusterIds]);
 
@@ -152,30 +183,42 @@ const RetentionScriptRow = React.memo<{ script: GQLRetentionScript }>(({ script 
   return (
     /* eslint-disable react-memo/require-usememo */
     <TableRow key={id}>
-      <TableCell>
+      <TableCell sx={{ width: '50%' }}>
         <Tooltip title={description}>
-          <span>{name}</span>
+          <Link to={`${path}/update/${script.id}`}>{name}</Link>
         </Tooltip>
       </TableCell>
-      <TableCell>
-        {selectedClusterNames.length > 0 ? (
-          selectedClusterNames.map(n => <Chip key={n} label={n} variant='outlined' size='small' />)
+      <TableCell sx={{ width: '50%' }}>
+        {selectedClusters.length > 0 ? (
+          <Box sx={{ display: 'flex', flexFlow: 'row wrap', gap: (t) => t.spacing(0.5) }}>
+            {selectedClusters.map(cluster => (
+              <Chip
+                key={cluster.id}
+                variant='outlined'
+                size='small'
+                label={cluster.prettyClusterName}
+              />
+            ))}
+          </Box>
         ) : (
           <Typography variant='caption' sx={{ color: 'text.disabled' }}>All Clusters (Default)</Typography>
         )}
       </TableCell>
-      <TableCell>
+      <TableCell sx={{ minWidth: (t) => t.spacing(26) }}>
         <Tooltip title={frequencyS > 60 ? `${Number(frequencyS).toLocaleString()} seconds` : ''}>
           <span>{distanceInWordsStrict(0, frequencyS * 1000)}</span>
         </Tooltip>
       </TableCell>
-      <TableCell>
+      <TableCell sx={{ minWidth: (t) => t.spacing(30) }}>
         <Box sx={{ display: 'flex', flexFlow: 'row nowrap', alignItems: 'center' }}>
           <PluginIcon iconString={plugin?.logo ?? ''} />
           <span>{plugin?.name ?? ''}</span>
         </Box>
       </TableCell>
-      <TableCell align='right' sx={({ spacing }) => ({ minWidth: spacing(33) })}>
+      <TableCell align='center' sx={{ minWidth: (t) => t.spacing(18) }}>
+        <HistoryLink path={path} script={script} />
+      </TableCell>
+      <TableCell align='right' sx={{ minWidth: (t) => t.spacing(33) }}>
         <FormControlLabel
           sx={{ mr: 1 }}
           label={script.enabled ? 'Enabled' : 'Disabled'}
@@ -193,7 +236,7 @@ const RetentionScriptRow = React.memo<{ script: GQLRetentionScript }>(({ script 
             component={Link}
             to={`${path}/update/${script.id}`}
           >
-            <SettingsIcon />
+            <EditIcon />
           </IconButton>
         </Tooltip>
         {!script.isPreset && (
@@ -254,13 +297,14 @@ const RetentionScriptTable = React.memo<{
       <Typography variant='h3' ml={2} mb={2}>{title}</Typography>
       {description.length > 0 && <Typography variant='subtitle2' ml={2} mb={4}>{description}</Typography>}
       {scripts.length > 0 ? (
-        <Table>
+        <Table style={{ tableLayout: 'auto' }}>
           <TableHead>
             <TableRow>
               <StyledTableHeaderCell>Script Name</StyledTableHeaderCell>
               <StyledTableHeaderCell>Clusters</StyledTableHeaderCell>
               <StyledTableHeaderCell>Summary Window</StyledTableHeaderCell>
               <StyledTableHeaderCell>Export Location</StyledTableHeaderCell>
+              <StyledTableHeaderCell align='center'>Export Status</StyledTableHeaderCell>
               <TableCell />
             </TableRow>
           </TableHead>
@@ -277,25 +321,26 @@ const RetentionScriptTable = React.memo<{
 });
 RetentionScriptTable.displayName = 'RetentionScriptTable';
 
-const useStyles = makeStyles(({ palette }: Theme) => createStyles({
-  link: {
-    textDecoration: 'none',
-    '&, &:visited': {
-      color: palette.primary.main,
-    },
-    '&:hover': {
-      textDecoration: 'underline',
-    },
-  },
-}), { name: 'DataExport' });
-
 export const ConfigureDataExportBody = React.memo(() => {
-  const classes = useStyles();
+  const showSnackbar = useSnackbar();
+  const isEmbedded = isPixieEmbedded();
 
-  const { loading: loadingScripts, scripts } = useRetentionScripts();
-  const { loading: loadingPlugins, plugins } = useRetentionPlugins();
+  const { loading: loadingScripts, error: scriptsError, scripts } = useRetentionScripts();
+  const { loading: loadingPlugins, error: pluginsError, plugins } = useRetentionPlugins();
 
-  const enabledPlugins = React.useMemo(() => (plugins?.filter(p => p.retentionEnabled) ?? []), [plugins]);
+  const enabledPlugins = React.useMemo(() => (
+    plugins?.filter(p => p.retentionEnabled && !hidePresetsForPlugin(p)) ?? []
+  ), [plugins]);
+
+  React.useEffect(() => {
+    const pMsg = pluginsError?.message;
+    const sMsg = scriptsError?.message;
+    const msg = [pMsg && `Plugins: ${pMsg}`, sMsg && `Scripts: ${sMsg}`].filter(m => m).join('; ');
+    if (msg) {
+      console.error('Something went wrong while loading retention plugins and scripts...', msg);
+      showSnackbar({ message: msg });
+    }
+  }, [pluginsError?.message, scriptsError?.message, showSnackbar]);
 
   if ((loadingScripts || loadingPlugins) && (!plugins || !scripts)) {
     return (
@@ -311,32 +356,52 @@ export const ConfigureDataExportBody = React.memo(() => {
     <Box m={2} mt={4} mb={4}>
       <Typography variant='h1' ml={2} mb={2}>Data Retention Scripts</Typography>
       <Typography variant='body1' ml={2} mb={2}>
-        {'These scripts are provided by your '}
-        <Link to='/admin/plugins' className={classes.link}>
-          enabled plugins
-        </Link>.
-        They&apos;re enabled by default.<br/>
-        Their PxL script can&apos;t be changed, but other options can.<br/>
-        Custom scripts can be created at the bottom of this page.
+      {isEmbedded ? <></> : (
+        <>
+          {'These preset scripts are provided by your '}
+          <Link to='/admin/plugins'>enabled plugins</Link>
+          {'.'}
+          <br /><br />
+        </>
+      )}
+      {'You cannot edit the preset scripts, but you can change their arguments and which clusters they run on.'}
+      <br />
+      {'Write custom scripts by clicking Create Script at the bottom of the page. '}
+      {'Learn more by visiting the '}
+      <a href='https://docs.px.dev/tutorials/integrations/otel/#setup-the-plugin' target='_blank' rel='noreferrer'>
+        plugin tutorial
+      </a> and <a href='https://docs.px.dev/reference/plugins/plugin-system/' target='_blank' rel='noreferrer'>
+        Pixie Plugin reference docs
+      </a>.
       </Typography>
       <Divider variant='middle' sx={{ mt: 4, mb: 4 }} />
-      {enabledPlugins.map(({ id, name, description }, i) => (
-        <React.Fragment key={id}>
-          {i > 0 && <Divider variant='middle' sx={{ mt: 4, mb: 4 }} />}
-          <RetentionScriptTable
-            title={`Presets from ${name}`}
-            description={description}
-            scripts={scripts.filter(s => s.pluginID === id && s.isPreset).sort((a, b) => a.name.localeCompare(b.name))}
-          />
-        </React.Fragment>
-      ))}
-      {enabledPlugins.length > 0 && <Divider variant='middle' sx={{ mt: 4, mb: 4 }} />}
-      <RetentionScriptTable
-        title='Custom Scripts'
-        description='Pixie can send results from custom scripts to long-term data stores at any desired frequency.'
-        scripts={scripts.filter(s => !s.isPreset).sort((a, b) => a.name.localeCompare(b.name))}
-        isCustom={true}
-      />
+      {(scriptsError || pluginsError) && (
+        <Alert severity='error' variant='outlined' sx={{ ml: 2, mb: 2 }}>
+          Something went wrong while loading retention plugins and scripts. See console for details.
+        </Alert>
+      )}
+      <ExportStatusContextProvider scripts={scripts}>
+        {enabledPlugins.map(({ id, name, description }, i) => (
+          <React.Fragment key={id}>
+            {i > 0 && <Divider variant='middle' sx={{ mt: 4, mb: 4 }} />}
+            <RetentionScriptTable
+              title={`Presets from ${name}`}
+              description={description}
+              scripts={
+                scripts.filter(s => s.pluginID === id && s.isPreset).sort((a, b) => a.name.localeCompare(b.name))
+              }
+            />
+          </React.Fragment>
+        ))}
+        {enabledPlugins.length > 0 && <Divider variant='middle' sx={{ mt: 4, mb: 4 }} />}
+        <RetentionScriptTable
+          title='Custom Scripts'
+          description={`Pixie can send results from custom scripts to long-term data stores at any desired frequency.
+            Showing custom scripts for enabled plugins only.`}
+          scripts={scripts.filter(s => !s.isPreset).sort((a, b) => a.name.localeCompare(b.name))}
+          isCustom={true}
+        />
+      </ExportStatusContextProvider>
     </Box>
     /* eslint-enable react-memo/require-usememo */
   );

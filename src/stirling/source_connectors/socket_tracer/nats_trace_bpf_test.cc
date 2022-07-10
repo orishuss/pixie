@@ -26,7 +26,7 @@ namespace px {
 namespace stirling {
 
 using ::px::stirling::testing::FindRecordIdxMatchesPID;
-using ::px::testing::BazelBinTestFilePath;
+using ::px::testing::BazelRunfilePath;
 using ::testing::AllOf;
 using ::testing::Field;
 using ::testing::HasSubstr;
@@ -34,7 +34,7 @@ using ::testing::UnorderedElementsAre;
 // Automatically converts ToString() to stream operator for gtest.
 using ::px::operator<<;
 
-class NATSTraceBPFTest : public testing::SocketTraceBPFTest</* TClientSideTracing */ false>,
+class NATSTraceBPFTest : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false>,
                          public ::testing::WithParamInterface<bool> {
  protected:
   NATSTraceBPFTest() {

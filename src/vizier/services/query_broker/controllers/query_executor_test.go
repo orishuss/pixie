@@ -286,7 +286,7 @@ type fakeResultForwarder struct {
 // RegisterQuery registers a query.
 func (f *fakeResultForwarder) RegisterQuery(queryID uuid.UUID, tableIDMap map[string]string,
 	compilationTimeNs int64,
-	queryPlanOpts *controllers.QueryPlanOpts) error {
+	queryPlanOpts *controllers.QueryPlanOpts, queryName string) error {
 	f.QueryRegistered = queryID
 	f.TableIDMap = tableIDMap
 	f.StreamedQueryPlanOpts = queryPlanOpts
@@ -404,7 +404,7 @@ func runTestCase(t *testing.T, test *queryExecTestCase) {
 	}
 
 	dp := &fakeDataPrivacy{}
-	queryExec := controllers.NewQueryExecutor("qb_address", "qb_hostname", at, dp, nc, nil, nil, rf, planner, nil, test.MutExecFactory)
+	queryExec := controllers.NewQueryExecutor("qb_address", "qb_hostname", at, dp, nc, nil, nil, rf, planner, test.MutExecFactory)
 	consumer := newTestConsumer(test.ConsumeErrs)
 
 	assert.Equal(t, test.QueryExecExpectedRunError, queryExec.Run(context.Background(), test.Req, consumer))

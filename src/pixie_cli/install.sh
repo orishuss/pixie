@@ -212,7 +212,7 @@ if [[ ! -e "${INSTALL_PATH}" ]]; then
     fi
 fi
 
-# TODO(zasgar): Check to make sure PX does not already exist, and if it does if it's actually pixie.
+# TODO(zasgar): Check to make sure PX does not already exist, and if it does if it's actually Pixie.
 # TODO(zasgar): Check the sha256.
 # Note: we need this download, mv step to make sure macos does not mark this binary as bad.
 execute curl -fsSL "$(artifact_url)" -o "${INSTALL_PATH}"/px_new
@@ -237,7 +237,7 @@ echo
 emph "Next steps:"
 cat << EOS
 - PX CLI has been installed to: ${INSTALL_PATH}. Make sure this directory is in your PATH.
-- Run ${tty_green}px deploy${tty_reset} to deploy pixie on K8s.
+- Run ${tty_green}px deploy${tty_reset} to deploy Pixie on K8s.
 - Run ${tty_green}px help${tty_reset} to get started, or visit our UI: ${tty_underline}https://${CLOUD_ADDR}${tty_reset}
 - Further documentation:
     ${tty_underline}https://${CLOUD_ADDR}/docs${tty_reset}

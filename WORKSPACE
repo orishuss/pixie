@@ -2,7 +2,7 @@ workspace(name = "px")
 
 load("//:workspace.bzl", "check_min_bazel_version")
 
-check_min_bazel_version("4.0.0")
+check_min_bazel_version("5.1.1")
 
 load("//bazel:repositories.bzl", "pl_deps")
 
@@ -15,13 +15,20 @@ pl_deps()
 # - grpc_deps (must come after protobuf_deps)
 # - apple_rules_dependencies (must come after grpc_deps)
 # ...
-load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
+load("@io_bazel_rules_go//go:deps.bzl", "go_download_sdk", "go_register_toolchains", "go_rules_dependencies")
+load("//:go_deps.bzl", "pl_go_dependencies", "pl_go_overrides")
+
+# We need to override some of the go dependencies used by go_rules.
+pl_go_overrides()
+
+go_download_sdk(
+    name = "go_sdk",
+    version = "1.18.3",
+)
 
 go_rules_dependencies()
 
-go_register_toolchains(go_version = "1.17.7")
-
-load("//:go_deps.bzl", "pl_go_dependencies")
+go_register_toolchains()
 
 # Pixie go dependencies need to be loaded before other go dependencies
 # to make sure we get the correct version.
@@ -70,6 +77,17 @@ load("@io_bazel_rules_docker//repositories:py_repositories.bzl", "py_deps")
 
 py_deps()
 
+load("@rules_python//python:pip.bzl", "pip_parse")
+
+pip_parse(
+    name = "ubuntu_package_deps",
+    requirements_lock = "//bazel/external/ubuntu_packages:requirements.txt",
+)
+
+load("@ubuntu_package_deps//:requirements.bzl", ubuntu_packages_install_deps = "install_deps")
+
+ubuntu_packages_install_deps()
+
 # The docker images can't be loaded until all pip_deps are satisfied.
 pl_container_images()
 
@@ -86,17 +104,39 @@ load("//bazel:gogo.bzl", "gogo_grpc_proto")
 gogo_grpc_proto(name = "gogo_grpc_proto")
 
 # Setup tensorflow.
-load("@org_tensorflow//tensorflow:workspace.bzl", "tf_repositories")
+load("@org_tensorflow//tensorflow:workspace3.bzl", "tf_workspace3")
 
-tf_repositories()
+tf_workspace3()
+
+load("@org_tensorflow//tensorflow:workspace2.bzl", "tf_workspace2")
+
+tf_workspace2()
+
+load("@org_tensorflow//tensorflow:workspace1.bzl", "tf_workspace1")
+
+tf_workspace1()
+
+load("@org_tensorflow//tensorflow:workspace0.bzl", "tf_workspace0")
+
+tf_workspace0()
 
 pl_model_files()
 
-# Setup the environment for the open-source python API.
-load("@rules_python//python:pip.bzl", "pip_parse")
+load("@rules_python//python:repositories.bzl", "python_register_toolchains")
 
+python_register_toolchains(
+    name = "python3_10",
+    # Available versions are listed in @rules_python//python:versions.bzl.
+    # We recommend using the same version your team is already standardized on.
+    python_version = "3.10",
+)
+
+load("@python3_10//:defs.bzl", "interpreter")
+
+# Setup the environment for the open-source python API.
 pip_parse(
     name = "vizier_api_python_deps",
+    python_interpreter_target = interpreter,
     requirements_lock = "//src/api/python:requirements.txt",
 )
 
@@ -119,11 +159,17 @@ load("//bazel:thrift.bzl", "thrift_deps")
 thrift_deps(scala_version = scala_version)
 
 # twitter_scrooge will use incompatible versions of @scrooge_jars and @thrift_jars.
-# These bind statements ensure that the correct versions of finagle libthrift are used
-# so that compilation is successful. See https://github.com/bazelbuild/rules_scala/issues/592
-# and https://github.com/bazelbuild/rules_scala/pull/847 for more details.
+# These bind statements ensure that the correct versions of finagle libthrift, scrooge core
+# and scrooge generator are used to ensure successful compilation.
+# See https://github.com/bazelbuild/rules_scala/issues/592 and
+# https://github.com/bazelbuild/rules_scala/pull/847 for more details.
 bind(
     name = "io_bazel_rules_scala/dependency/thrift/scrooge_core",
+    actual = "//src/stirling/source_connectors/socket_tracer/testing/containers/thriftmux:scrooge_jars",
+)
+
+bind(
+    name = "io_bazel_rules_scala/dependency/thrift/scrooge_generator",
     actual = "//src/stirling/source_connectors/socket_tracer/testing/containers/thriftmux:scrooge_jars",
 )
 
@@ -137,4 +183,15 @@ bind(
 # The first one wins when it comes to package declaration.
 load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
 
-gazelle_dependencies()
+gazelle_dependencies(go_sdk = "go_sdk")
+
+# Download alternative go toolchains after all other dependencies, so that they aren't used by external dependencies.
+go_download_sdk(
+    name = "go_sdk_1_16",
+    version = "1.16.14",
+)
+
+go_download_sdk(
+    name = "go_sdk_1_17",
+    version = "1.17.11",
+)

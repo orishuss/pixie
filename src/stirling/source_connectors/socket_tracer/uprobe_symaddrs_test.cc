@@ -36,14 +36,14 @@ using obj_tools::ElfReader;
 class UprobeSymaddrsTest : public ::testing::Test {
  protected:
   void SetUp() {
-    std::filesystem::path p = px::testing::BazelBinTestFilePath(kGoGRPCServer);
+    std::filesystem::path p = px::testing::BazelRunfilePath(kGoGRPCServer);
     ASSERT_OK_AND_ASSIGN(dwarf_reader_, DwarfReader::CreateIndexingAll(p));
     ASSERT_OK_AND_ASSIGN(elf_reader_, ElfReader::Create(p));
   }
 
   static inline constexpr std::string_view kGoGRPCServer =
-      "src/stirling/testing/demo_apps/go_grpc_tls_pl/server/golang_1_16_grpc_tls_server_binary/go/"
-      "src/grpc_tls_server/grpc_tls_server";
+      "src/stirling/testing/demo_apps/go_grpc_tls_pl/server/golang_1_16_grpc_tls_server_binary_/"
+      "golang_1_16_grpc_tls_server_binary";
 
   std::unique_ptr<DwarfReader> dwarf_reader_;
   std::unique_ptr<ElfReader> elf_reader_;

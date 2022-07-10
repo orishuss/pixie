@@ -21,7 +21,8 @@ import * as React from 'react';
 import { useQuery, gql } from '@apollo/client';
 
 import { GQLUserInfo } from 'app/types/schema';
-import { makeCancellable, silentlyCatchCancellation } from 'app/utils/cancellable-promise';
+import { makeCancellable } from 'app/utils/cancellable-promise';
+import { WithChildren } from 'app/utils/react-boilerplate';
 import { GetPxScripts, Script } from 'app/utils/script-bundle';
 
 export interface ScriptsContextProps {
@@ -49,7 +50,7 @@ export const SCRATCH_SCRIPT: Script = {
   hidden: false,
 };
 
-export const ScriptsContextProvider = React.memo(({ children }) => {
+export const ScriptsContextProvider = React.memo<WithChildren>(({ children }) => {
   const { data, loading, error } = useQuery<{
     user: Pick<GQLUserInfo, 'orgName' | 'orgID' >,
   }>(gql`
@@ -75,7 +76,7 @@ export const ScriptsContextProvider = React.memo(({ children }) => {
       availableScripts.set(SCRATCH_SCRIPT.id, scratchScript);
       setScripts(availableScripts);
       setScriptLoading(false);
-    }).catch(silentlyCatchCancellation);
+    });
     return () => promise.cancel();
     // Monitoring the user's ID and their org rather than the whole object, to avoid excess renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps

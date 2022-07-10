@@ -46,7 +46,7 @@ struct RedisTraceTestCase {
   std::string exp_resp;
 };
 
-class RedisTraceBPFTest : public testing::SocketTraceBPFTest</* TClientSideTracing */ false>,
+class RedisTraceBPFTest : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false>,
                           public ::testing::WithParamInterface<RedisTraceTestCase> {
  protected:
   RedisTraceBPFTest() { PL_CHECK_OK(container_.Run(std::chrono::seconds{150})); }
@@ -130,7 +130,8 @@ TEST_F(RedisTraceBPFTest, VerifyBatchedCommands) {
   // Sometimes this command is not properly traced, so we make this conditional.
   // TODO(oazizi/yzhao): Figure out why this is not always traced.
   ASSERT_THAT(redis_trace_records, Not(IsEmpty()));
-  if (redis_trace_records.begin()->cmd == "COMMAND") {
+  while (redis_trace_records.begin()->cmd == "COMMAND") {
+    LOG(INFO) << "Erasing leading COMMAND record: " << redis_trace_records.front();
     redis_trace_records.erase(redis_trace_records.begin());
   }
 
@@ -165,11 +166,11 @@ TEST_F(RedisTraceBPFTest, VerifyBatchedCommands) {
 
 // Verifies that pub/sub commands can be traced correctly.
 TEST_F(RedisTraceBPFTest, VerifyPubSubCommands) {
-  using ::px::testing::BazelBinTestFilePath;
+  using ::px::testing::BazelRunfilePath;
 
   StartTransferDataThread();
 
-  ContainerRunner redis_sub_client(BazelBinTestFilePath(kRedisImagePath), "redis_sub_client", "");
+  ContainerRunner redis_sub_client(BazelRunfilePath(kRedisImagePath), "redis_sub_client", "");
   redis_sub_client.Run(std::chrono::seconds{60},
                        {absl::Substitute("--network=container:$0", container_.container_name())},
                        {"redis-cli", "subscribe", "foo"});

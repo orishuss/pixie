@@ -37,7 +37,21 @@ if (isDevServer) {
 
 const plugins = [
   new CaseSensitivePathsPlugin(),
-  new FaviconsWebpackPlugin('../assets/favicon-base.png'),
+  new FaviconsWebpackPlugin({
+    logo: '../assets/favicon-base.png',
+    favicons: {
+      icons: {
+        android: false,
+        appleIcon: false,
+        appleStartup: false,
+        coast: false,
+        favicons: true,
+        firefox: false,
+        windows: false,
+        yandex: false
+      }
+    }
+  }),
   new HtmlWebpackPlugin({
     alwaysWriteToDisk: true,
     chunks: ['config', 'manifest', 'commons', 'vendor', 'main'],
@@ -127,14 +141,6 @@ const webpackConfig = {
           target: 'es2020',
         },
       })),
-      {
-        test: /\.(jpg|png|gif|svg)$/,
-        loader: 'image-webpack-loader',
-        // Specify enforce: 'pre' to apply the loader
-        // before url-loader/svg-url-loader
-        // and not duplicate it in rules with them
-        enforce: 'pre',
-      },
       {
         test: /\.(svg)$/i,
         loader: require.resolve('svg-url-loader'),
@@ -307,6 +313,7 @@ module.exports = (env, argv) => {
       __ANNOUNCEMENT_ENABLED__: JSON.parse(announcementYAML.data.ANNOUNCEMENT_ENABLED),
       __ANNOUNCE_WIDGET_URL__: JSON.stringify(announcementYAML.data.ANNOUNCE_WIDGET_URL),
       __ANALYTICS_ENABLED__: JSON.parse(analyticsYAML.data.ANALYTICS_ENABLED),
+      __PASSTHROUGH_PROXY_PORT__: JSON.stringify(domainYAML.data.PASSTHROUGH_PROXY_PORT || ''),
       __SEGMENT_UI_WRITE_KEY__: '""',
       __CONFIG_OAUTH_PROVIDER__: JSON.stringify(oauthProvider),
       __CONFIG_AUTH_URI__: JSON.stringify(authURI),

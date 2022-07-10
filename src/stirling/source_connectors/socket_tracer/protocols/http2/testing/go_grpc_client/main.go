@@ -28,11 +28,10 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding/gzip"
 
-	// ___module___ will get replaced by the module name for the current binary and
-	// the generated .pb.go is expected to be in a sibling proto/ folder at buildtime.
-	pb "___module___/proto"
+	pb "px.dev/pixie/src/stirling/source_connectors/socket_tracer/protocols/http2/testing/proto"
 )
 
 func getDialOpts(compression, https bool) []grpc.DialOption {
@@ -47,7 +46,7 @@ func getDialOpts(compression, https bool) []grpc.DialOption {
 		creds := credentials.NewTLS(tlsConfig)
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
 	} else {
-		dialOpts = append(dialOpts, grpc.WithInsecure())
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
 	return dialOpts

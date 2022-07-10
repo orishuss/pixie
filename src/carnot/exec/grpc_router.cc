@@ -57,27 +57,14 @@ Status GRPCRouter::EnqueueRowBatch(QueryTracker* query_tracker,
     // It's possible that we see row batches before we have gotten information about the query. To
     // solve this race, We store a backlog of all the pending batches.
     if (snt->source_node == nullptr) {
+      snt->connection_initiated_by_sink = true;
       snt->response_backlog.emplace_back(std::move(req));
       return Status::OK();
     }
+    snt->source_node->set_upstream_initiated_connection();
     PL_RETURN_IF_ERROR(snt->source_node->EnqueueRowBatch(std::move(req)));
   }
   query_tracker->RestartExecution();
-  return Status::OK();
-}
-
-Status GRPCRouter::MarkResultStreamInitiated(QueryTracker* query_tracker, int64_t source_id) {
-  auto snt = GetSourceNodeTracker(query_tracker, source_id);
-  absl::base_internal::SpinLockHolder snt_lock(&snt->node_lock);
-  // It's possible that we see row batches before we have gotten information about the query. To
-  // solve this race, We store a backlog of all the pending batches.
-  if (snt->source_node == nullptr) {
-    DCHECK(!snt->connection_initiated_by_sink);
-    snt->connection_initiated_by_sink = true;
-    return Status::OK();
-  }
-  DCHECK(!snt->source_node->upstream_initiated_connection());
-  snt->source_node->set_upstream_initiated_connection();
   return Status::OK();
 }
 
@@ -120,11 +107,10 @@ void GRPCRouter::MarkResultStreamContextAsComplete(QueryTracker* query_tracker,
   {
     absl::base_internal::SpinLockHolder lock(&id_to_query_tracker_map_lock_);
     if (!id_to_query_tracker_map_.contains(query_id)) {
-      // If its an initiate_result_stream request then we can create a new QueryTracker.
-      // Otherwise, we return an error since this is likely after the QueryTracker was deleted.
-      if (!(req->has_query_result() && req->query_result().initiate_result_stream())) {
-        return ::grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                              "Attempting to TransferResultChunk for finished query.");
+      if (!req->has_initiate_conn()) {
+        return ::grpc::Status(
+            grpc::StatusCode::INVALID_ARGUMENT,
+            "Attempting to TransferResultChunk for uninitiated or completed query.");
       }
       id_to_query_tracker_map_[query_id] = std::make_shared<QueryTracker>();
     }
@@ -134,6 +120,10 @@ void GRPCRouter::MarkResultStreamContextAsComplete(QueryTracker* query_tracker,
   if (!state->registered_server_context) {
     RegisterResultStreamContext(state->query_tracker.get(), context);
     state->registered_server_context = true;
+  }
+
+  if (req->has_initiate_conn()) {
+    return ::grpc::Status::OK;
   }
 
   if (req->has_execution_and_timing_info()) {
@@ -149,24 +139,11 @@ void GRPCRouter::MarkResultStreamContextAsComplete(QueryTracker* query_tracker,
     return ::grpc::Status::OK;
   }
   if (req->has_query_result() && req->query_result().has_row_batch()) {
+    state->stream_has_query_results = true;
+    state->source_node_id = req->query_result().grpc_source_id();
     auto s = EnqueueRowBatch(state->query_tracker.get(), std::move(req));
     if (!s.ok()) {
       return ::grpc::Status(grpc::StatusCode::INTERNAL, "failed to enqueue batch");
-    }
-    return ::grpc::Status::OK;
-  }
-  if (req->has_query_result() && req->query_result().initiate_result_stream()) {
-    if (req->query_result().destination_case() !=
-        carnotpb::TransferResultChunkRequest_SinkResult::DestinationCase::kGrpcSourceId) {
-      return ::grpc::Status(grpc::StatusCode::INTERNAL,
-                            "expected result stream to have grpc source ID");
-    }
-
-    state->stream_has_query_results = true;
-    state->source_node_id = req->query_result().grpc_source_id();
-    auto s = MarkResultStreamInitiated(state->query_tracker.get(), state->source_node_id);
-    if (!s.ok()) {
-      return ::grpc::Status(grpc::StatusCode::INTERNAL, s.msg());
     }
     return ::grpc::Status::OK;
   }
@@ -175,9 +152,7 @@ void GRPCRouter::MarkResultStreamContextAsComplete(QueryTracker* query_tracker,
     state->query_tracker->upstream_exec_errors.push_back(req->execution_error());
     return ::grpc::Status::OK;
   }
-  return ::grpc::Status(grpc::StatusCode::INTERNAL,
-                        "expected TransferResultChunkRequest to have either query_result "
-                        "or execution_and_timing_info set, received neither");
+  return ::grpc::Status(grpc::StatusCode::INTERNAL, "unexpected TransferResultChunkRequest type");
 }
 std::vector<statuspb::Status> GRPCRouter::GetIncomingWorkerErrors(const sole::uuid& query_id) {
   std::shared_ptr<QueryTracker> query_tracker;
@@ -266,7 +241,7 @@ Status GRPCRouter::AddGRPCSourceNode(sole::uuid query_id, int64_t source_id,
 }
 
 StatusOr<std::vector<queryresultspb::AgentExecutionStats>> GRPCRouter::GetIncomingWorkerExecStats(
-    const sole::uuid& query_id, const std::vector<uuidpb::UUID>& expected_agent_ids) {
+    const sole::uuid& query_id) {
   std::shared_ptr<QueryTracker> query_tracker;
   {
     absl::base_internal::SpinLockHolder lock(&id_to_query_tracker_map_lock_);
@@ -277,16 +252,10 @@ StatusOr<std::vector<queryresultspb::AgentExecutionStats>> GRPCRouter::GetIncomi
     query_tracker = it->second;
   }
 
-  std::vector<queryresultspb::AgentExecutionStats> agent_exec_stats;
   {
     absl::base_internal::SpinLockHolder lock(&query_tracker->query_lock);
-    agent_exec_stats = query_tracker->agent_exec_stats;
+    return query_tracker->agent_exec_stats;
   }
-  if (agent_exec_stats.size() != expected_agent_ids.size()) {
-    LOG(WARNING) << absl::Substitute("Agent ids are not the same size. Got $0 and expected $1",
-                                     agent_exec_stats.size(), expected_agent_ids.size());
-  }
-  return agent_exec_stats;
 }
 
 Status GRPCRouter::DeleteGRPCSourceNode(sole::uuid query_id, int64_t source_id) {

@@ -27,6 +27,7 @@ import (
 	"px.dev/pixie/src/shared/cvmsgspb"
 	"px.dev/pixie/src/utils"
 	"px.dev/pixie/src/vizier/services/metadata/metadatapb"
+	"px.dev/pixie/src/vizier/services/metadata/storepb"
 )
 
 // Store is a datastore which can store, update, and retrieve information about cron scripts.
@@ -35,6 +36,8 @@ type Store interface {
 	UpsertCronScript(script *cvmsgspb.CronScript) error
 	DeleteCronScript(id uuid.UUID) error
 	SetCronScripts(scripts []*cvmsgspb.CronScript) error
+	RecordCronScriptResult(*storepb.CronScriptResult) error
+	GetAllCronScriptResults() ([]*storepb.CronScriptResult, error)
 }
 
 // Server is an implementation of the cronscriptstore service.
@@ -104,4 +107,60 @@ func (s *Server) SetScripts(ctx context.Context, req *metadatapb.SetScriptsReque
 	}
 
 	return &metadatapb.SetScriptsResponse{}, s.ds.SetCronScripts(scripts)
+}
+
+// RecordExecutionResult records the stats of a successful CronScript execution or the error message of an unsuccessful execution.
+func (s *Server) RecordExecutionResult(ctx context.Context, req *metadatapb.RecordExecutionResultRequest) (*metadatapb.RecordExecutionResultResponse, error) {
+	result := &storepb.CronScriptResult{
+		ScriptID:  req.GetScriptID(),
+		Timestamp: req.Timestamp,
+		Error:     req.GetError(),
+	}
+	if execStats := req.GetExecutionStats(); execStats != nil {
+		result.ExecutionTimeNs = execStats.ExecutionTimeNs
+		result.CompilationTimeNs = execStats.CompilationTimeNs
+		result.BytesProcessed = execStats.BytesProcessed
+		result.RecordsProcessed = execStats.RecordsProcessed
+	}
+
+	err := s.ds.RecordCronScriptResult(result)
+	if err != nil {
+		return nil, err
+	}
+	return &metadatapb.RecordExecutionResultResponse{}, nil
+}
+
+// GetAllExecutionResults returns all of the execution results for cronscripts stored by this service.
+func (s *Server) GetAllExecutionResults(ctx context.Context, req *metadatapb.GetAllExecutionResultsRequest) (*metadatapb.GetAllExecutionResultsResponse, error) {
+	results, err := s.ds.GetAllCronScriptResults()
+	if err != nil {
+		return nil, err
+	}
+	resp := &metadatapb.GetAllExecutionResultsResponse{
+		Results: make([]*metadatapb.GetAllExecutionResultsResponse_ExecutionResult, len(results)),
+	}
+
+	for i, res := range results {
+		newResult := &metadatapb.GetAllExecutionResultsResponse_ExecutionResult{
+			ScriptID:  res.ScriptID,
+			Timestamp: res.Timestamp,
+		}
+		if res.Error != nil {
+			newResult.Result = &metadatapb.GetAllExecutionResultsResponse_ExecutionResult_Error{
+				Error: res.Error,
+			}
+		} else {
+			newResult.Result = &metadatapb.GetAllExecutionResultsResponse_ExecutionResult_ExecutionStats{
+				ExecutionStats: &metadatapb.ExecutionStats{
+					ExecutionTimeNs:   res.ExecutionTimeNs,
+					CompilationTimeNs: res.CompilationTimeNs,
+					BytesProcessed:    res.BytesProcessed,
+					RecordsProcessed:  res.RecordsProcessed,
+				},
+			}
+		}
+
+		resp.Results[i] = newResult
+	}
+	return resp, nil
 }

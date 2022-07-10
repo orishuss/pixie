@@ -31,6 +31,8 @@ if [[ ! "$release_tag" == *"-"* ]]; then
   bucket="pixie-dev-public"
 fi
 
+gpg --no-tty --batch --yes --import "${BUILDBOT_GPG_KEY_FILE}"
+
 output_path="gs://${bucket}/cli/${release_tag}"
 for arch in amd64 arm64 universal
 do
@@ -40,5 +42,8 @@ do
   if [[ ! "$release_tag" == *"-"* ]]; then
     output_path="gs://pixie-dev-public/cli/latest"
     copy_artifact_to_gcs "$output_path" "cli_darwin_${arch}" "cli_darwin_${arch}"
+
+    gpg --no-tty --batch --yes --local-user "${BUILDBOT_GPG_KEY_ID}" --armor --detach-sign "cli_darwin_${arch}"
+    gh release upload "${TAG_NAME}" --repo=pixie-io/pixie "cli_darwin_${arch}" "cli_darwin_${arch}.asc"
   fi
 done

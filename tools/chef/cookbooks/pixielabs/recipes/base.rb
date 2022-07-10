@@ -67,19 +67,18 @@ end
 
 execute 'install go binaries' do
   ENV['GOPATH'] = "/opt/pixielabs/gopath"
-  command %(go get \
-            golang.org/x/lint/golint@v0.0.0-20210508222113-6edffad5e616 \
-            golang.org/x/tools/cmd/goimports@v0.1.2 \
-            github.com/golang/mock/mockgen@v1.5.0 \
-            github.com/cheekybits/genny@v1.0.0 \
-            sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1 \
-            k8s.io/code-generator/cmd/client-gen@v0.20.6 \
-            github.com/go-bindata/go-bindata/go-bindata@v3.1.2+incompatible)
+  command %(go install golang.org/x/lint/golint@v0.0.0-20210508222113-6edffad5e616 && \
+            go install golang.org/x/tools/cmd/goimports@v0.1.2 && \
+            go install github.com/golang/mock/mockgen@v1.5.0 && \
+            go install github.com/cheekybits/genny@v1.0.0 && \
+            go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.4.1 && \
+            go install k8s.io/code-generator/cmd/client-gen@v0.20.6 && \
+            go install github.com/go-bindata/go-bindata/go-bindata@v3.1.2+incompatible)
 end
 
 template '/opt/pixielabs/plenv.inc' do
   source 'plenv.inc.erb'
-  owner user
+  owner 'root'
   group root_group
   mode '0644'
   action :create
@@ -87,13 +86,21 @@ end
 
 template '/opt/pixielabs/bin/tot' do
   source 'tot.erb'
-  owner user
+  owner 'root'
   group root_group
   mode '0755'
   action :create
 end
 
-remote_file '/opt/pixielabs/bin/bazel' do
+template '/opt/pixielabs/bin/bazel' do
+  source 'bazel.erb'
+  owner 'root'
+  group root_group
+  mode '0755'
+  action :create
+end
+
+remote_file '/opt/pixielabs/bin/bazel_core' do
   source node['bazel']['download_path']
   mode 0555
   checksum node['bazel']['sha256']
@@ -242,4 +249,20 @@ end
 
 file '/tmp/lego.tar.gz' do
   action :delete
+end
+
+remote_file '/opt/pixielabs/bin/codecov' do
+  source node['codecov']['download_path']
+  mode 0755
+  checksum node['codecov']['sha256']
+end
+
+remote_file '/tmp/gh.tar.gz' do
+  source node['gh']['download_path']
+  mode 0755
+  checksum node['gh']['sha256']
+end
+
+execute 'install gh' do
+  command 'tar xf /tmp/gh.tar.gz -C /opt/pixielabs --strip-components 1'
 end

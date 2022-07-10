@@ -25,6 +25,19 @@ filegroup(
 
 cmake(
     name = "bcc",
+    build_args = [
+        "--",  # <- Pass remaining options to the native tool.
+        "-j`nproc`",
+        "-l`nproc`",
+    ],
+    cache_entries = {
+        "ENABLE_EXAMPLES": "OFF",
+        "ENABLE_MAN": "OFF",
+        "ENABLE_TESTS": "OFF",
+    },
+    includes = [
+        "bcc/compat",
+    ],
     install = False,
     lib_source = ":bcc_source",
     # These link opts are dependencies of bcc.
@@ -37,7 +50,6 @@ cmake(
         "libbcc.a",
         "libbcc_bpf.a",
         "libbcc-loader-static.a",
-        "libb_frontend.a",
         "libclang_frontend.a",
     ],
     postfix_script = "make -C src/cc install",
@@ -46,7 +58,6 @@ cmake(
         "bcc-static",
         "bcc-loader-static",
         "bpf-static",
-        "b_frontend",
         "clang_frontend",
     ],
     visibility = ["//visibility:public"],

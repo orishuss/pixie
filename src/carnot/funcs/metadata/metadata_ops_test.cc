@@ -27,6 +27,7 @@
 #include "src/carnot/funcs/metadata/metadata_ops.h"
 #include "src/carnot/udf/test_utils.h"
 #include "src/common/base/base.h"
+#include "src/common/base/inet_utils.h"
 #include "src/common/testing/testing.h"
 #include "src/shared/k8s/metadatapb/test_proto.h"
 #include "src/shared/metadata/pids.h"
@@ -101,6 +102,14 @@ TEST_F(MetadataOpsTest, pod_id_to_pod_name_test) {
   auto udf_tester = px::carnot::udf::UDFTester<PodIDToPodNameUDF>(std::move(function_ctx));
   udf_tester.ForInput("1_uid").Expect("pl/running_pod");
   udf_tester.ForInput("2_uid").Expect("pl/terminating_pod");
+  udf_tester.ForInput("missing").Expect("");
+}
+
+TEST_F(MetadataOpsTest, pod_id_to_pod_labels_test) {
+  auto function_ctx = std::make_unique<FunctionContext>(metadata_state_, nullptr);
+  auto udf_tester = px::carnot::udf::UDFTester<PodIDToPodLabelsUDF>(std::move(function_ctx));
+  udf_tester.ForInput("1_uid").Expect("{\"k1\":\"v1\", \"k2\":\"v2\"}");
+  udf_tester.ForInput("2_uid").Expect("{\"k1\":\"v1\"}");
   udf_tester.ForInput("missing").Expect("");
 }
 
@@ -694,6 +703,25 @@ TEST_F(MetadataOpsTest, basic_upid_with_asid_test) {
   auto function_ctx = std::make_unique<FunctionContext>(metadata_state, nullptr);
   auto udf_tester = px::carnot::udf::UDFTester<CreateUPIDWithASIDUDF>(std::move(function_ctx));
   udf_tester.ForInput(2, 100, 23123).Expect(md::UPID(2, 100, 23123).value());
+}
+
+TEST_F(MetadataOpsTest, get_cidrs) {
+  auto metadata_state = std::make_shared<px::md::AgentMetadataState>(
+      /* hostname */ "myhost",
+      /* asid */ 1, /* pid */ 123, agent_id_, "mypod", vizier_id_, "myvizier");
+  px::CIDRBlock pod_cidr;
+  std::string pod_cidr_str("10.0.0.20/32");
+  ASSERT_OK(px::ParseCIDRBlock(pod_cidr_str, &pod_cidr));
+  metadata_state->k8s_metadata_state()->set_pod_cidrs({pod_cidr});
+  px::CIDRBlock service_cidr;
+  std::string service_cidr_str("10.1.40.0/24");
+  ASSERT_OK(px::ParseCIDRBlock(service_cidr_str, &service_cidr));
+  metadata_state->k8s_metadata_state()->set_service_cidr(service_cidr);
+
+  auto function_ctx = std::make_unique<FunctionContext>(metadata_state, nullptr);
+  auto udf_tester = px::carnot::udf::UDFTester<GetClusterCIDRRangeUDF>(std::move(function_ctx));
+  udf_tester.Init().ForInput().Expect(
+      absl::Substitute(R"(["$0","$1","$2"])", "10.0.0.1/32", pod_cidr_str, service_cidr_str));
 }
 
 }  // namespace metadata

@@ -23,6 +23,8 @@ import { Button, Link, Typography } from '@mui/material';
 import { Theme } from '@mui/material/styles';
 import { createStyles, makeStyles } from '@mui/styles';
 
+import { WithChildren } from 'app/utils/react-boilerplate';
+
 import { PixienautBox } from './pixienaut-box';
 
 const useStyles = makeStyles(({ spacing, palette }: Theme) => createStyles({
@@ -63,12 +65,6 @@ const useStyles = makeStyles(({ spacing, palette }: Theme) => createStyles({
     fontStyle: 'italic',
     marginBottom: spacing(3),
   },
-  disclaimerLink: {
-    color: palette.primary.main,
-    '&:visited': {
-      color: palette.primary.main,
-    },
-  },
 }), { name: 'AuthBox' });
 
 export interface AuthBoxProps {
@@ -80,7 +76,7 @@ export interface AuthBoxProps {
   showTOSDisclaimer?: boolean;
 }
 
-export const AuthBox: React.FC<AuthBoxProps> = React.memo((props) => {
+export const AuthBox: React.FC<WithChildren<AuthBoxProps>> = React.memo((props) => {
   const {
     toggleURL,
     showTOSDisclaimer,
@@ -111,9 +107,9 @@ export const AuthBox: React.FC<AuthBoxProps> = React.memo((props) => {
           <>
             <Typography variant='subtitle2' className={classes.disclaimer}>
               By signing up, you&apos;re agreeing to&nbsp;
-              <a href='https://pixielabs.ai/terms/' className={classes.disclaimerLink}>Terms of Service</a>
+              <a href='https://pixielabs.ai/terms/'>Terms of Service</a>
               &nbsp;and&nbsp;
-              <a href='https://pixielabs.ai/privacy' className={classes.disclaimerLink}>Privacy Policy</a>
+              <a href='https://pixielabs.ai/privacy'>Privacy Policy</a>
               .
             </Typography>
           </>

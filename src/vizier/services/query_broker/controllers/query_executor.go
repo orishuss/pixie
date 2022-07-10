@@ -29,6 +29,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,6 +41,28 @@ import (
 	"px.dev/pixie/src/common/base/statuspb"
 	"px.dev/pixie/src/vizier/services/metadata/metadatapb"
 )
+
+var queryExecTimeSummary *prometheus.SummaryVec
+var queryExecNumPEMSummary *prometheus.SummaryVec
+
+func init() {
+	queryExecTimeSummary = promauto.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name: "query_exec_time_ms",
+			Help: "A summary of the query execution time in milliseconds for the given script.",
+			// Report only the 99th percentile. Summary also creates a _count and _sum field so we can get the average in addition to the 99th percentile.
+			Objectives: map[float64]float64{0.99: 0.001},
+		},
+		[]string{"script_name"},
+	)
+	queryExecNumPEMSummary = promauto.NewSummaryVec(
+		prometheus.SummaryOpts{
+			Name: "query_exec_pems_queried",
+			Help: "A summary of the number of PEMs queried for the given script. A value of 0 indicates the script only queried kelvin.",
+		},
+		[]string{"script_name"},
+	)
+}
 
 // QueryResultConsumer defines an interface to allow consumption of Query results from a QueryResultExecutor.
 type QueryResultConsumer interface {
@@ -67,16 +90,15 @@ type MutationExecFactory func(Planner,
 
 // QueryExecutorImpl implements the QueryExecutor interface.
 type QueryExecutorImpl struct {
-	resultAddress        string
-	resultSSLTargetName  string
-	agentsTracker        AgentsTracker
-	dataPrivacy          DataPrivacy
-	natsConn             *nats.Conn
-	mdtp                 metadatapb.MetadataTracepointServiceClient
-	mdconf               metadatapb.MetadataConfigServiceClient
-	resultForwarder      QueryResultForwarder
-	planner              Planner
-	queryExecTimeSummary *prometheus.SummaryVec
+	resultAddress       string
+	resultSSLTargetName string
+	agentsTracker       AgentsTracker
+	dataPrivacy         DataPrivacy
+	natsConn            *nats.Conn
+	mdtp                metadatapb.MetadataTracepointServiceClient
+	mdconf              metadatapb.MetadataConfigServiceClient
+	resultForwarder     QueryResultForwarder
+	planner             Planner
 
 	eg *errgroup.Group
 
@@ -88,6 +110,8 @@ type QueryExecutorImpl struct {
 
 	// queryName is used for labeling execution time metrics.
 	queryName string
+	// numPEMsQueried is stored so that the prometheus metric is only updated if the query succeeded.
+	numPEMsQueried int
 }
 
 // NewQueryExecutorFromServer creates a new QueryExecutor using the properties of a query broker server.
@@ -102,7 +126,6 @@ func NewQueryExecutorFromServer(s *Server, mutExecFactory MutationExecFactory) Q
 		s.mdconf,
 		s.resultForwarder,
 		s.planner,
-		s.queryExecTimeSummary,
 		mutExecFactory,
 	)
 }
@@ -118,22 +141,21 @@ func NewQueryExecutor(
 	mdconf metadatapb.MetadataConfigServiceClient,
 	resultForwarder QueryResultForwarder,
 	planner Planner,
-	queryExecTimeSummary *prometheus.SummaryVec,
 	mutExecFactory MutationExecFactory,
 ) QueryExecutor {
 	return &QueryExecutorImpl{
-		resultAddress:        resultAddress,
-		resultSSLTargetName:  resultSSLTargetName,
-		agentsTracker:        agentsTracker,
-		dataPrivacy:          dataPrivacy,
-		natsConn:             natsConn,
-		mdtp:                 mdtp,
-		mdconf:               mdconf,
-		resultForwarder:      resultForwarder,
-		planner:              planner,
-		mutationExecFactory:  mutExecFactory,
-		queryExecTimeSummary: queryExecTimeSummary,
-		queryName:            "",
+		resultAddress:       resultAddress,
+		resultSSLTargetName: resultSSLTargetName,
+		agentsTracker:       agentsTracker,
+		dataPrivacy:         dataPrivacy,
+		natsConn:            natsConn,
+		mdtp:                mdtp,
+		mdconf:              mdconf,
+		resultForwarder:     resultForwarder,
+		planner:             planner,
+		mutationExecFactory: mutExecFactory,
+		queryName:           "",
+		numPEMsQueried:      0,
 	}
 }
 
@@ -155,8 +177,9 @@ func (q *QueryExecutorImpl) Run(ctx context.Context, req *vizierpb.ExecuteScript
 		q.queryID = queryID
 	}
 
-	if req.QueryName != "" {
-		q.queryName = req.QueryName
+	q.queryName = req.QueryName
+	if q.queryName == "" {
+		q.queryName = "unnamed"
 	}
 
 	resultCh := make(chan *vizierpb.ExecuteScriptResponse)
@@ -173,11 +196,9 @@ func (q *QueryExecutorImpl) Run(ctx context.Context, req *vizierpb.ExecuteScript
 func (q *QueryExecutorImpl) Wait() error {
 	err := q.eg.Wait()
 	if err == nil {
-		// Only track execution time for named scripts.
-		if q.queryExecTimeSummary != nil && q.queryName != "" {
-			d := time.Since(q.startTime)
-			q.queryExecTimeSummary.With(prometheus.Labels{"script_name": q.queryName}).Observe(float64(d.Milliseconds()))
-		}
+		d := time.Since(q.startTime)
+		queryExecTimeSummary.With(prometheus.Labels{"script_name": q.queryName}).Observe(float64(d.Milliseconds()))
+		queryExecNumPEMSummary.With(prometheus.Labels{"script_name": q.queryName}).Observe(float64(q.numPEMsQueried))
 		return nil
 	}
 	// There are a few common failure cases that may occur naturally during query execution. For example, ctxDeadlineExceeded,
@@ -305,6 +326,7 @@ func (q *QueryExecutorImpl) compilePlan(ctx context.Context, resultCh chan<- *vi
 	if req.Configs != nil && req.Configs.PluginConfig != nil {
 		pluginConfig = &distributedpb.PluginConfig{
 			StartTimeNs: req.Configs.PluginConfig.StartTimeNs,
+			EndTimeNs:   req.Configs.PluginConfig.EndTimeNs,
 		}
 	}
 
@@ -348,6 +370,9 @@ func (q *QueryExecutorImpl) buildAgentPlanMap(plan *distributedpb.DistributedPla
 		}
 		planMap[u] = agentPlan
 	}
+	// Plan map includes an entry for Kelvin, so the number of pems queried should be 1 less than the number of plans.
+	// TODO(james): update this to support multiple Kelvin plans.
+	q.numPEMsQueried = len(planMap) - 1
 	return planMap, nil
 }
 
@@ -449,7 +474,7 @@ func (q *QueryExecutorImpl) prepareScript(ctx context.Context, resultCh chan<- *
 		return err
 	}
 
-	err = q.resultForwarder.RegisterQuery(q.queryID, tableNameToIDMap, q.compilationTimeNs, queryPlanOpts)
+	err = q.resultForwarder.RegisterQuery(q.queryID, tableNameToIDMap, q.compilationTimeNs, queryPlanOpts, q.queryName)
 	if err != nil {
 		return err
 	}
@@ -457,6 +482,7 @@ func (q *QueryExecutorImpl) prepareScript(ctx context.Context, resultCh chan<- *
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 

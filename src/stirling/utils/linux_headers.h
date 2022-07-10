@@ -35,7 +35,7 @@ struct KernelVersion {
   uint8_t major_rev = 0;
   uint8_t minor_rev = 0;
 
-  uint32_t code() { return (version << 16) | (major_rev << 8) | (minor_rev); }
+  uint32_t code() const { return (version << 16) | (major_rev << 8) | (minor_rev); }
 };
 
 enum class KernelVersionSource {
@@ -96,6 +96,12 @@ StatusOr<std::string> GetProcVersionSignature();
  */
 StatusOr<KernelVersion> GetKernelVersion(
     std::vector<KernelVersionSource> sources = kDefaultKernelVersionSources);
+
+/**
+ * Returns the cached linux kernel version.
+ * @return The pre-computed kernel version, or {0, 0, 0} if not found.
+ */
+KernelVersion GetCachedKernelVersion();
 
 /**
  * Modifies the version.h on the filesystem to the specified version.
@@ -169,22 +175,6 @@ Status InstallPackagedLinuxHeaders(const std::filesystem::path& lib_modules_dir)
 // but this variable lets us know the headers were installed on the filesystem.
 inline bool g_packaged_headers_installed = false;
 
-enum class LinuxHeaderStrategy {
-  // Search for linux Linux headers are already accessible (must be running directly on host).
-  kSearchLocalHeaders,
-
-  // Search for Linux headers under /host (must be running in our own container).
-  kLinkHostHeaders,
-
-  // Try to install packaged headers (only works if in a container image with packaged headers).
-  // Useful in case no Linux headers are found.
-  kInstallPackagedHeaders
-};
-
-inline const std::vector<LinuxHeaderStrategy> kDefaultHeaderSearchOrder = {
-    utils::LinuxHeaderStrategy::kSearchLocalHeaders, utils::LinuxHeaderStrategy::kLinkHostHeaders,
-    utils::LinuxHeaderStrategy::kInstallPackagedHeaders};
-
 /**
  * This function attempts to ensure that the host system has Linux headers.
  * Currently this required by Stirling, so that we can deploy BPF probes.
@@ -197,14 +187,10 @@ inline const std::vector<LinuxHeaderStrategy> kDefaultHeaderSearchOrder = {
  * In a containerized environment, the container should have the packaged headers in the image for
  * this to work.
  *
- * @param attempt_order Provides the ordered list of strategies to use to find the Linux headers.
- * See LinuxHeaderStrategy enum.
- *
  * @return Status error if no headers (either host headers or installed packaged headers) are
  * available in the end state.
  */
-StatusOr<std::filesystem::path> FindOrInstallLinuxHeaders(
-    const std::vector<LinuxHeaderStrategy>& attempt_order);
+StatusOr<std::filesystem::path> FindOrInstallLinuxHeaders();
 
 }  // namespace utils
 }  // namespace stirling

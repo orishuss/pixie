@@ -22,14 +22,17 @@
 #include "src/common/testing/testing.h"
 
 constexpr std::string_view kTestGo1_16Binary =
-    "src/stirling/obj_tools/testdata/go/test_go_1_16_binary";
+    "src/stirling/obj_tools/testdata/go/test_go_1_16_binary_/"
+    "test_go_1_16_binary";
 constexpr std::string_view kTestGo1_17Binary =
-    "src/stirling/obj_tools/testdata/go/test_go_1_17_binary";
-constexpr std::string_view kTestGo1_18Binary =
-    "src/stirling/obj_tools/testdata/go/test_go_1_18_binary";
+    "src/stirling/obj_tools/testdata/go/test_go_1_17_binary_/"
+    "test_go_1_17_binary";
+constexpr std::string_view kTestGoBinary =
+    "src/stirling/obj_tools/testdata/go/test_go_binary_/"
+    "test_go_binary";
 constexpr std::string_view kGoGRPCServer =
-    "src/stirling/testing/demo_apps/go_grpc_tls_pl/server/golang_1_16_grpc_tls_server_binary/go/"
-    "src/grpc_tls_server/grpc_tls_server";
+    "src/stirling/testing/demo_apps/go_grpc_tls_pl/server/golang_1_16_grpc_tls_server_binary_/"
+    "golang_1_16_grpc_tls_server_binary";
 constexpr std::string_view kCppBinary = "src/stirling/obj_tools/testdata/cc/test_exe";
 constexpr std::string_view kGoBinaryUnconventional =
     "src/stirling/obj_tools/testdata/go/sockshop_payments_service";
@@ -64,12 +67,12 @@ auto CreateDwarfReader(const std::filesystem::path& path, bool indexing) {
 class DwarfReaderTest : public ::testing::TestWithParam<DwarfReaderTestParam> {
  protected:
   DwarfReaderTest()
-      : kCppBinaryPath(px::testing::BazelBinTestFilePath(kCppBinary)),
-        kGo1_16BinaryPath(px::testing::TestFilePath(kTestGo1_16Binary)),
-        kGo1_17BinaryPath(px::testing::TestFilePath(kTestGo1_17Binary)),
-        kGo1_18BinaryPath(px::testing::TestFilePath(kTestGo1_18Binary)),
-        kGoServerBinaryPath(px::testing::BazelBinTestFilePath(kGoGRPCServer)),
-        kGoBinaryUnconventionalPath(px::testing::TestFilePath(kGoBinaryUnconventional)) {}
+      : kCppBinaryPath(px::testing::BazelRunfilePath(kCppBinary)),
+        kGo1_16BinaryPath(px::testing::BazelRunfilePath(kTestGo1_16Binary)),
+        kGo1_17BinaryPath(px::testing::BazelRunfilePath(kTestGo1_17Binary)),
+        kGo1_18BinaryPath(px::testing::BazelRunfilePath(kTestGoBinary)),
+        kGoServerBinaryPath(px::testing::BazelRunfilePath(kGoGRPCServer)),
+        kGoBinaryUnconventionalPath(px::testing::BazelRunfilePath(kGoBinaryUnconventional)) {}
 
   const std::string kCppBinaryPath;
   const std::string kGo1_16BinaryPath;
@@ -269,36 +272,45 @@ TEST_P(DwarfReaderTest, CppGetStructSpec) {
       (std::vector{
           StructSpecEntry{.offset = 0,
                           .size = 8,
-                          .type_info = {.type = VarType::kBaseType, .type_name = "long int"},
+                          .type_info = {.type = VarType::kBaseType,
+                                        .type_name = "long",
+                                        .decl_type = "int64_t"},
                           .path = "/O0"},
-          StructSpecEntry{.offset = 8,
-                          .size = 1,
-                          .type_info = {.type = VarType::kBaseType, .type_name = "bool"},
-                          .path = "/O1/M0/L0"},
-          StructSpecEntry{.offset = 12,
-                          .size = 4,
-                          .type_info = {.type = VarType::kBaseType, .type_name = "int"},
-                          .path = "/O1/M0/L1"},
-          StructSpecEntry{.offset = 16,
-                          .size = 8,
-                          .type_info = {.type = VarType::kPointer, .type_name = "long int*"},
-                          .path = "/O1/M0/L2"},
-          StructSpecEntry{.offset = 24,
-                          .size = 1,
-                          .type_info = {.type = VarType::kBaseType, .type_name = "bool"},
-                          .path = "/O1/M1"},
-          StructSpecEntry{.offset = 32,
-                          .size = 1,
-                          .type_info = {.type = VarType::kBaseType, .type_name = "bool"},
-                          .path = "/O1/M2/L0"},
-          StructSpecEntry{.offset = 36,
-                          .size = 4,
-                          .type_info = {.type = VarType::kBaseType, .type_name = "int"},
-                          .path = "/O1/M2/L1"},
-          StructSpecEntry{.offset = 40,
-                          .size = 8,
-                          .type_info = {.type = VarType::kPointer, .type_name = "long int*"},
-                          .path = "/O1/M2/L2"},
+          StructSpecEntry{
+              .offset = 8,
+              .size = 1,
+              .type_info = {.type = VarType::kBaseType, .type_name = "bool", .decl_type = "bool"},
+              .path = "/O1/M0/L0"},
+          StructSpecEntry{
+              .offset = 12,
+              .size = 4,
+              .type_info = {.type = VarType::kBaseType, .type_name = "int", .decl_type = "int32_t"},
+              .path = "/O1/M0/L1"},
+          StructSpecEntry{
+              .offset = 16,
+              .size = 8,
+              .type_info = {.type = VarType::kPointer, .type_name = "long*", .decl_type = "long*"},
+              .path = "/O1/M0/L2"},
+          StructSpecEntry{
+              .offset = 24,
+              .size = 1,
+              .type_info = {.type = VarType::kBaseType, .type_name = "bool", .decl_type = "bool"},
+              .path = "/O1/M1"},
+          StructSpecEntry{
+              .offset = 32,
+              .size = 1,
+              .type_info = {.type = VarType::kBaseType, .type_name = "bool", .decl_type = "bool"},
+              .path = "/O1/M2/L0"},
+          StructSpecEntry{
+              .offset = 36,
+              .size = 4,
+              .type_info = {.type = VarType::kBaseType, .type_name = "int", .decl_type = "int32_t"},
+              .path = "/O1/M2/L1"},
+          StructSpecEntry{
+              .offset = 40,
+              .size = 8,
+              .type_info = {.type = VarType::kPointer, .type_name = "long*", .decl_type = "long*"},
+              .path = "/O1/M2/L2"},
       }));
 
   EXPECT_NOT_OK(dwarf_reader->GetStructSpec("Bogus"));

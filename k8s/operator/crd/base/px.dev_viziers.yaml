@@ -130,7 +130,7 @@ spec:
                 description: PemMemoryRequest is a memory request applied specifically
                   to PEM pods. It will automatically use the value of pemMemoryLimit
                   if not specified.
-                type: string                
+                type: string
               pod:
                 description: Pod defines the policy for creating Vizier pods.
                 properties:
@@ -167,7 +167,7 @@ spec:
                           pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                           x-kubernetes-int-or-string: true
                         description: 'Limits describes the maximum amount of compute
-                          resources allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
+                          resources allowed. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                         type: object
                       requests:
                         additionalProperties:
@@ -179,7 +179,7 @@ spec:
                         description: 'Requests describes the minimum amount of compute
                           resources required. If Requests is omitted for a container,
                           it defaults to Limits if that is explicitly specified, otherwise
-                          to an implementation-defined value. More info: https://kubernetes.io/docs/concepts/configuration/manage-compute-resources-container/'
+                          to an implementation-defined value. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                         type: object
                     type: object
                   securityContext:
@@ -220,6 +220,12 @@ spec:
           status:
             description: VizierStatus defines the observed state of Vizier
             properties:
+              checksum:
+                description: A checksum of the last reconciled Vizier spec. If this
+                  checksum does not match the checksum of the current vizier spec,
+                  reconciliation should be performed.
+                format: byte
+                type: string
               lastReconciliationPhaseTime:
                 description: LastReconciliationPhaseTime is the last time that the
                   ReconciliationPhase changed.

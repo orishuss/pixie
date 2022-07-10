@@ -36,6 +36,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	grpc_metadata "google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
@@ -729,7 +730,7 @@ func Test_Server_RemoveTracepoint(t *testing.T) {
 }
 
 func createDialer(lis *bufconn.Listener) func(ctx context.Context, url string) (net.Conn, error) {
-	return func(ctx context.Context, url string) (conn net.Conn, e error) {
+	return func(ctx context.Context, url string) (net.Conn, error) {
 		return lis.Dial()
 	}
 }
@@ -920,7 +921,7 @@ func TestGetAgentUpdates(t *testing.T) {
 	}()
 
 	ctx := context.Background()
-	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(createDialer(lis)), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(createDialer(lis)), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("Failed to dial bufnet: %v", err)
 	}

@@ -22,8 +22,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc/status"
+
+	"px.dev/pixie/src/carnot/planner/compilerpb"
+	"px.dev/pixie/src/common/base/statuspb"
 
 	"github.com/gofrs/uuid"
 	"github.com/gogo/protobuf/proto"
@@ -267,7 +273,7 @@ func (s *ScriptRunner) upsertScript(id uuid.UUID, script *cvmsgspb.CronScript) e
 		v.stop()
 		delete(s.runnerMap, id)
 	}
-	r := newRunner(script, s.vzClient, s.signingKey)
+	r := newRunner(script, s.vzClient, s.signingKey, id, s.csClient)
 	s.runnerMap[id] = r
 	go r.start()
 	claims := svcutils.GenerateJWTForService("cron_script_store", "vizier")
@@ -389,6 +395,7 @@ func (s *ScriptRunner) natsReplyAndResponse(req *cvmsgspb.V2CMessage, requestTop
 
 	// Wait for response.
 	t := time.NewTimer(natsWaitTimeout)
+	defer t.Stop()
 	for {
 		select {
 		case <-s.done:
@@ -414,14 +421,17 @@ type runner struct {
 
 	lastRun time.Time
 
+	csClient   metadatapb.CronScriptStoreServiceClient
 	vzClient   vizierpb.VizierServiceClient
 	signingKey string
 
 	done chan struct{}
 	once sync.Once
+
+	scriptID uuid.UUID
 }
 
-func newRunner(script *cvmsgspb.CronScript, vzClient vizierpb.VizierServiceClient, signingKey string) *runner {
+func newRunner(script *cvmsgspb.CronScript, vzClient vizierpb.VizierServiceClient, signingKey string, id uuid.UUID, csClient metadatapb.CronScriptStoreServiceClient) *runner {
 	// Parse config YAML into struct.
 	var config scripts.Config
 	err := yaml.Unmarshal([]byte(script.Configs), &config)
@@ -430,15 +440,48 @@ func newRunner(script *cvmsgspb.CronScript, vzClient vizierpb.VizierServiceClien
 	}
 
 	return &runner{
-		cronScript: script, done: make(chan struct{}), vzClient: vzClient, signingKey: signingKey, config: &config,
+		cronScript: script, done: make(chan struct{}), csClient: csClient, vzClient: vzClient, signingKey: signingKey, config: &config, scriptID: id,
 	}
+}
+
+// VizierStatusToStatus converts the Vizier status to the internal storable version statuspb.Status
+func VizierStatusToStatus(s *vizierpb.Status) (*statuspb.Status, error) {
+	var ctxAny *types.Any
+	var err error
+	if len(s.ErrorDetails) > 0 {
+		errorPb := &compilerpb.CompilerErrorGroup{
+			Errors: make([]*compilerpb.CompilerError, len(s.ErrorDetails)),
+		}
+		for i, ed := range s.ErrorDetails {
+			e := ed.GetCompilerError()
+			errorPb.Errors[i] = &compilerpb.CompilerError{
+				Error: &compilerpb.CompilerError_LineColError{
+					LineColError: &compilerpb.LineColError{
+						Line:    e.Line,
+						Column:  e.Column,
+						Message: e.Message,
+					},
+				},
+			}
+		}
+		ctxAny, err = types.MarshalAny(errorPb)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &statuspb.Status{
+		ErrCode: statuspb.Code(s.Code),
+		Msg:     s.Message,
+		Context: ctxAny,
+	}, nil
 }
 
 func (r *runner) start() {
 	if r.cronScript.FrequencyS <= 0 {
 		return
 	}
-	ticker := time.NewTicker(time.Duration(r.cronScript.FrequencyS) * time.Second)
+	scriptPeriod := time.Duration(r.cronScript.FrequencyS) * time.Second
+	ticker := time.NewTicker(scriptPeriod)
 	r.lastRun = time.Now()
 
 	go func() {
@@ -464,20 +507,102 @@ func (r *runner) start() {
 					}
 				}
 
-				// TODO(michelle): We may want to monitor the stream to ensure the script runs successfully.
-				startTime := r.lastRun
+				// We set the time 1 second in the past to cover colletor latency and request latencies
+				// which can cause data overlaps or cause data to be missed.
+				startTime := r.lastRun.Add(-time.Second)
+				endTime := startTime.Add(scriptPeriod)
 				r.lastRun = time.Now()
-				_, err := r.vzClient.ExecuteScript(ctx, &vizierpb.ExecuteScriptRequest{
+				execScriptClient, err := r.vzClient.ExecuteScript(ctx, &vizierpb.ExecuteScriptRequest{
 					QueryStr: r.cronScript.Script,
 					Configs: &vizierpb.Configs{
 						OTelEndpointConfig: otelEndpoint,
 						PluginConfig: &vizierpb.Configs_PluginConfig{
 							StartTimeNs: startTime.UnixNano(),
+							EndTimeNs:   endTime.UnixNano(),
 						},
 					},
+					QueryName: "cron_" + r.scriptID.String(),
 				})
 				if err != nil {
 					log.WithError(err).Error("Failed to execute cronscript")
+				}
+				for {
+					resp, err := execScriptClient.Recv()
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						grpcStatus, _ := status.FromError(err)
+
+						tsPb, err := types.TimestampProto(startTime)
+						if err != nil {
+							log.WithError(err).Error("Error while creating timestamp proto")
+						}
+
+						_, err = r.csClient.RecordExecutionResult(ctx, &metadatapb.RecordExecutionResultRequest{
+							ScriptID:  utils.ProtoFromUUID(r.scriptID),
+							Timestamp: tsPb,
+							Result: &metadatapb.RecordExecutionResultRequest_Error{
+								Error: &statuspb.Status{
+									ErrCode: statuspb.Code(grpcStatus.Code()),
+									Msg:     grpcStatus.Message(),
+								},
+							},
+						})
+						if err != nil {
+							log.WithError(err).Error("Error while recording cron script execution error")
+						}
+						break
+					}
+
+					if vzStatus := resp.GetStatus(); vzStatus != nil {
+						tsPb, err := types.TimestampProto(startTime)
+						if err != nil {
+							log.WithError(err).Error("Error while creating timestamp proto")
+						}
+						status, err := VizierStatusToStatus(vzStatus)
+						if err != nil {
+							log.WithError(err).Error("Error converting status")
+						}
+
+						_, err = r.csClient.RecordExecutionResult(ctx, &metadatapb.RecordExecutionResultRequest{
+							ScriptID:  utils.ProtoFromUUID(r.scriptID),
+							Timestamp: tsPb,
+							Result: &metadatapb.RecordExecutionResultRequest_Error{
+								Error: status,
+							},
+						})
+						if err != nil {
+							log.WithError(err).Error("Error while recording cron script execution error")
+						}
+						break
+					}
+					if data := resp.GetData(); data != nil {
+						tsPb, err := types.TimestampProto(startTime)
+						if err != nil {
+							log.WithError(err).Error("Error while creating timestamp proto")
+						}
+						stats := data.GetExecutionStats()
+						if stats == nil {
+							continue
+						}
+						_, err = r.csClient.RecordExecutionResult(ctx, &metadatapb.RecordExecutionResultRequest{
+							ScriptID:  utils.ProtoFromUUID(r.scriptID),
+							Timestamp: tsPb,
+							Result: &metadatapb.RecordExecutionResultRequest_ExecutionStats{
+								ExecutionStats: &metadatapb.ExecutionStats{
+									ExecutionTimeNs:   stats.Timing.ExecutionTimeNs,
+									CompilationTimeNs: stats.Timing.CompilationTimeNs,
+									BytesProcessed:    stats.BytesProcessed,
+									RecordsProcessed:  stats.RecordsProcessed,
+								},
+							},
+						})
+						if err != nil {
+							log.WithError(err).Error("Error recording execution stats")
+						}
+						break
+					}
 				}
 			}
 		}

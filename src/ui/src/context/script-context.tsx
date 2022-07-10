@@ -21,7 +21,7 @@ import * as React from 'react';
 import { Observable } from 'rxjs';
 
 import {
-  PixieAPIContext, ExecutionStateUpdate, VizierQueryError, GRPCStatusCode, VizierTable,
+  PixieAPIContext, ExecutionStateUpdate, VizierQueryError, GRPCStatusCode,
 } from 'app/api';
 import { ClusterContext, useClusterConfig } from 'app/common/cluster-context';
 import { useSnackbar } from 'app/components';
@@ -35,6 +35,7 @@ import {
 } from 'app/utils/args-utils';
 import { checkExhaustive } from 'app/utils/check-exhaustive';
 import { containsMutation, isStreaming } from 'app/utils/pxl';
+import { WithChildren } from 'app/utils/react-boilerplate';
 import { Script } from 'app/utils/script-bundle';
 
 const NUM_MUTATION_RETRIES = 5;
@@ -78,7 +79,7 @@ export const ScriptContext = React.createContext<ScriptContextProps>({
 });
 ScriptContext.displayName = 'ScriptContext';
 
-export const ScriptContextProvider: React.FC = React.memo(({ children }) => {
+export const ScriptContextProvider: React.FC<WithChildren> = React.memo(({ children }) => {
   const apiClient = React.useContext(PixieAPIContext);
   const {
     scriptId,
@@ -168,6 +169,7 @@ export const ScriptContextProvider: React.FC = React.memo(({ children }) => {
       script.code,
       { enableE2EEncryption: true },
       getQueryFuncs(script.vis, args, embedState.widget),
+      script.id,
     );
     setRunningExecution(execution);
     setManual(false);
@@ -234,16 +236,8 @@ export const ScriptContextProvider: React.FC = React.memo(({ children }) => {
           });
           break;
         case 'data': {
-          const updateData = update.event.data;
-          resultsContext.setResults((prev) => {
-            for (const updateBatch of updateData) {
-              const table: VizierTable = prev.tables.get(updateBatch.name)
-                ?? new VizierTable(updateBatch.id, updateBatch.name, updateBatch.relation);
-              table.appendBatch(updateBatch.batch);
-              prev.tables.set(updateBatch.name, table);
-            }
-            return { ...prev };
-          });
+          // Force an update that React will pick up on. New batches have already been appended to the tables here.
+          resultsContext.setResults((prev) => ({ ...prev }));
           if (resultsContext.streaming) {
             resultsContext.setLoading(false);
           }

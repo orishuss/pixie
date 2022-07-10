@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/gofrs/uuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -121,27 +122,7 @@ func GetVizierList(cloudAddr string) ([]*cloudpb.ClusterInfo, error) {
 }
 
 func createVizierConnection(cloudAddr string, vzInfo *cloudpb.ClusterInfo) (*Connector, error) {
-	l, err := NewLister(cloudAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	passthrough := false
-	if vzInfo.Config != nil {
-		passthrough = vzInfo.Config.PassthroughEnabled
-	}
-
-	u := utils.UUIDFromProtoOrNil(vzInfo.ID)
-
-	var vzConn *ConnectionInfo
-	if !passthrough {
-		vzConn, err = l.GetVizierConnection(u)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	v, err := NewConnector(cloudAddr, vzInfo, vzConn)
+	v, err := NewConnector(cloudAddr, vzInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -353,4 +334,39 @@ func GetClusterIDFromKubeConfig(config *rest.Config) uuid.UUID {
 		return uuid.Nil
 	}
 	return uuid.FromStringOrNil(string(cID))
+}
+
+// GetCloudAddrFromKubeConfig returns the cloud address given the kubeconfig. If anything fails, then will return an empty string.
+func GetCloudAddrFromKubeConfig(config *rest.Config) string {
+	if config == nil {
+		return ""
+	}
+	clientset := k8s.GetClientset(config)
+	if clientset == nil {
+		return ""
+	}
+	vzNs, err := FindVizierNamespace(clientset)
+	if err != nil || vzNs == "" {
+		return ""
+	}
+
+	cm, err := clientset.CoreV1().ConfigMaps(vzNs).Get(context.Background(), "pl-cloud-config", metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+
+	cloudAddr, ok := cm.Data["PL_CLOUD_ADDR"]
+	if !ok {
+		return ""
+	}
+	if strings.Contains(cloudAddr, "vzconn-service") && strings.Contains(cloudAddr, "svc.cluster.local") {
+		cloudAddr = strings.Replace(cloudAddr, "vzconn-service", "cloud-proxy-service", 1)
+		splitAddr := strings.Split(cloudAddr, ":")
+		if len(splitAddr) < 1 {
+			return cloudAddr
+		}
+		cloudAddr = fmt.Sprintf("%s:443", splitAddr[0])
+	}
+
+	return cloudAddr
 }

@@ -47,6 +47,8 @@ func init() {
 
 	CreateDeployKeyCmd.Flags().StringP("desc", "d", "", "A description for the deploy key")
 	viper.BindPFlag("desc", CreateDeployKeyCmd.Flags().Lookup("desc"))
+	CreateDeployKeyCmd.Flags().BoolP("short", "s", false, "Return only the created deploy key, for use to pipe to other tools")
+	viper.BindPFlag("short", CreateDeployKeyCmd.Flags().Lookup("short"))
 
 	DeleteDeployKeyCmd.Flags().StringP("id", "i", "", "The deploy key to delete")
 	viper.BindPFlag("id", DeleteDeployKeyCmd.Flags().Lookup("id"))
@@ -74,13 +76,18 @@ var CreateDeployKeyCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cloudAddr := viper.GetString("cloud_addr")
 		desc := viper.GetString("desc")
+		short, _ := cmd.Flags().GetBool("short")
 
 		keyID, key, err := generateDeployKey(cloudAddr, desc)
 		if err != nil {
 			// Using log.Fatal rather than CLI log in order to track this unexpected error in Sentry.
 			log.WithError(err).Fatal("Failed to generate deployment key")
 		}
-		utils.Infof("Generated deployment key: \nID: %s \nKey: %s", keyID, key)
+		if short {
+			utils.Infof(key)
+		} else {
+			utils.Infof("Generated deployment key: \nID: %s \nKey: %s", keyID, key)
+		}
 	},
 }
 
@@ -90,7 +97,8 @@ var DeleteDeployKeyCmd = &cobra.Command{
 	Short: "Delete a deploy key for Pixie",
 	Run: func(cmd *cobra.Command, args []string) {
 		cloudAddr := viper.GetString("cloud_addr")
-		id := viper.GetString("id")
+		id, _ := cmd.Flags().GetString("id")
+
 		if id == "" {
 			utils.Fatal("Deployment key ID must be specified using --id flag")
 		}

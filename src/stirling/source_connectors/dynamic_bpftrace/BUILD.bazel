@@ -35,9 +35,12 @@ pl_cc_library(
 )
 
 pl_cc_test(
-    name = "dynamic_bpftrace_connector_test",
-    srcs = ["dynamic_bpftrace_connector_test.cc"],
-    tags = ["requires_bpf"],
+    name = "dynamic_bpftrace_connector_bpf_test",
+    srcs = ["dynamic_bpftrace_connector_bpf_test.cc"],
+    tags = [
+        "cpu:16",
+        "requires_bpf",
+    ],
     deps = [
         ":cc_library",
         "//src/stirling/testing:cc_library",

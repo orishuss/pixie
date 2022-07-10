@@ -38,6 +38,7 @@ import (
 	cliUtils "px.dev/pixie/src/pixie_cli/pkg/utils"
 	"px.dev/pixie/src/pixie_cli/pkg/vizier"
 	"px.dev/pixie/src/utils"
+	"px.dev/pixie/src/utils/shared/k8s"
 )
 
 func init() {
@@ -47,8 +48,14 @@ func init() {
 	GetPEMsCmd.Flags().StringP("cluster", "c", "", "Run only on selected cluster")
 	GetPEMsCmd.Flags().MarkHidden("all-clusters")
 
+	GetClusterCmd.Flags().Bool("id", false, "Whether to only fetch the cluster ID from the cluster running in the current kubeconfig")
+	viper.BindPFlag("id", GetClusterCmd.Flags().Lookup("id"))
+	GetClusterCmd.Flags().Bool("cloud-addr", false, "Whether to only fetch the cloud address from the cluster running in the current kubeconfig")
+	viper.BindPFlag("cloud-addr", GetClusterCmd.Flags().Lookup("cloud-addr"))
+
 	GetCmd.AddCommand(GetPEMsCmd)
 	GetCmd.AddCommand(GetViziersCmd)
+	GetCmd.AddCommand(GetClusterCmd)
 }
 
 // GetPEMsCmd is the "get pem" command.
@@ -109,13 +116,9 @@ var GetViziersCmd = &cobra.Command{
 
 		w := components.CreateStreamWriter(format, os.Stdout)
 		defer w.Finish()
-		w.SetHeader("viziers", []string{"ClusterName", "ID", "K8s Version", "Vizier Version", "Last Heartbeat", "Passthrough", "Status", "Status Message"})
+		w.SetHeader("viziers", []string{"ClusterName", "ID", "K8s Version", "Vizier Version", "Last Heartbeat", "Status", "Status Message"})
 
 		for _, vz := range vzs {
-			passthrough := false
-			if vz.Config != nil {
-				passthrough = vz.Config.PassthroughEnabled
-			}
 			var lastHeartbeat interface{}
 			lastHeartbeat = vz.LastHeartbeatNs
 			if format == "" || format == "table" {
@@ -140,8 +143,40 @@ var GetViziersCmd = &cobra.Command{
 				}
 			}
 			_ = w.Write([]interface{}{vz.ClusterName, utils.UUIDFromProtoOrNil(vz.ID), vz.ClusterVersion, sb.String(),
-				lastHeartbeat, passthrough, vz.Status, vz.StatusMessage})
+				lastHeartbeat, vz.Status, vz.StatusMessage})
 		}
+	},
+}
+
+// GetClusterCmd is the "get cluster" command to get information about the current kubeconfig cluster.
+var GetClusterCmd = &cobra.Command{
+	Use:   "cluster",
+	Short: "Get information about the current kubeconfig cluster",
+	Run: func(cmd *cobra.Command, args []string) {
+		id, _ := cmd.Flags().GetBool("id")
+		addr, _ := cmd.Flags().GetBool("cloud-addr")
+
+		config := k8s.GetConfig()
+
+		clusterID := vizier.GetClusterIDFromKubeConfig(config)
+
+		if clusterID == uuid.Nil {
+			cliUtils.Infof("Unable to find Pixie cluster running in current kubeconfig")
+		}
+
+		cloudAddr := vizier.GetCloudAddrFromKubeConfig(config)
+
+		if id {
+			fmt.Fprintf(os.Stdout, "%s\n", clusterID)
+			return
+		}
+
+		if addr {
+			fmt.Fprintf(os.Stdout, "%s\n", cloudAddr)
+			return
+		}
+
+		cliUtils.Infof("Cluster ID: %s\nCloud Address: %s", clusterID, cloudAddr)
 	},
 }
 

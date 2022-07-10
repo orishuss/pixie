@@ -19,6 +19,7 @@
 import * as React from 'react';
 
 import { ResultsContext, ResultsContextProps } from 'app/context/results-context';
+import { WithChildren } from 'app/utils/react-boilerplate';
 
 export const RESULTS_CONTEXT_DEFUALTS: ResultsContextProps = {
   clearResults: jest.fn(),
@@ -31,7 +32,7 @@ export const RESULTS_CONTEXT_DEFUALTS: ResultsContextProps = {
 };
 
 // eslint-disable-next-line react-memo/require-memo
-export const MockResultsContextProvider: React.FC = ({ children }) => (
+export const MockResultsContextProvider: React.FC<WithChildren> = ({ children }) => (
   <ResultsContext.Provider value={RESULTS_CONTEXT_DEFUALTS}>
     {children}
   </ResultsContext.Provider>

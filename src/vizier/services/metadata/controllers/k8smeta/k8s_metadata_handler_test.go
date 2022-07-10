@@ -337,7 +337,7 @@ func TestHandler_GetUpdatesForIP(t *testing.T) {
 					Conditions: []*metadatapb.PodCondition{
 						{
 							Type:   metadatapb.READY,
-							Status: metadatapb.STATUS_TRUE,
+							Status: metadatapb.CONDITION_STATUS_TRUE,
 						},
 					},
 					NodeName: "test",
@@ -981,6 +981,7 @@ func TestPodUpdateProcessor_GetUpdatesToSend(t *testing.T) {
 					UID:              "ijkl",
 					Name:             "object_md",
 					Namespace:        "",
+					Labels:           `{"app":"myApp1","project":"myProj1"}`,
 					StartTimestampNS: 4,
 					StopTimestampNS:  6,
 					QOSClass:         metadatapb.QOS_CLASS_BURSTABLE,
@@ -990,7 +991,7 @@ func TestPodUpdateProcessor_GetUpdatesToSend(t *testing.T) {
 					Conditions: []*metadatapb.PodCondition{
 						{
 							Type:   metadatapb.READY,
-							Status: metadatapb.STATUS_TRUE,
+							Status: metadatapb.CONDITION_STATUS_TRUE,
 						},
 					},
 					NodeName: "test",
@@ -1117,11 +1118,11 @@ func TestNodeUpdateProcessor_GetUpdatesToSend(t *testing.T) {
 							Conditions: []*metadatapb.NodeCondition{
 								{
 									Type:   metadatapb.NODE_CONDITION_MEMORY_PRESSURE,
-									Status: metadatapb.NODE_CONDITION_STATUS_FALSE,
+									Status: metadatapb.CONDITION_STATUS_FALSE,
 								},
 								{
 									Type:   metadatapb.NODE_CONDITION_READY,
-									Status: metadatapb.NODE_CONDITION_STATUS_TRUE,
+									Status: metadatapb.CONDITION_STATUS_TRUE,
 								},
 							},
 						},
@@ -1154,11 +1155,11 @@ func TestNodeUpdateProcessor_GetUpdatesToSend(t *testing.T) {
 					Conditions: []*metadatapb.NodeCondition{
 						{
 							Type:   metadatapb.NODE_CONDITION_MEMORY_PRESSURE,
-							Status: metadatapb.NODE_CONDITION_STATUS_FALSE,
+							Status: metadatapb.CONDITION_STATUS_FALSE,
 						},
 						{
 							Type:   metadatapb.NODE_CONDITION_READY,
-							Status: metadatapb.NODE_CONDITION_STATUS_TRUE,
+							Status: metadatapb.CONDITION_STATUS_TRUE,
 						},
 					},
 				},

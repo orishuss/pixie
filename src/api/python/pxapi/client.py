@@ -486,9 +486,6 @@ class Cluster:
             return self.id
         return self.info.cluster_name
 
-    def passthrough(self) -> bool:
-        return self.info.config.passthrough_enabled
-
 
 class Client:
     """
@@ -537,7 +534,7 @@ class Client:
     def list_healthy_clusters(self) -> List[Cluster]:
         """ Lists all of the healthy clusters that you can access.  """
         healthy_clusters: List[Cluster] = []
-        for c in self._get_cluster(cpb.GetClusterConnectionInfoRequest()):
+        for c in self._get_cluster(cpb.GetClusterInfoRequest()):
             if c.status != cpb.CS_HEALTHY:
                 continue
             healthy_clusters.append(
@@ -555,22 +552,7 @@ class Client:
         )
         return self._get_cluster(request)[0]
 
-    def _get_cluster_connection_info(
-            self,
-            cluster_id: ClusterID
-    ) -> cpb.GetClusterConnectionInfoResponse:
-        channel = self._get_cloud_channel()
-        stub = cloudapi_pb2_grpc.VizierClusterInfoStub(channel)
-        request = cpb.GetClusterConnectionInfoRequest(
-            id=uuid_pb_from_string(cluster_id)
-        )
-        response = stub.GetClusterConnectionInfo(request, metadata=[
-            ("pixie-api-key", self._token),
-            ("pixie-api-client", "python")
-        ])
-        return response
-
-    def _create_passthrough_conn(
+    def _create_cluster_conn(
         self,
         cluster_id: ClusterID,
         cluster_info: cpb.ClusterInfo,
@@ -591,7 +573,7 @@ class Client:
 
         Returns a connection object that you can use to create `ScriptExecutor`s.
         You may pass in a `ClusterID` string or a `Cluster` object that comes
-        from `list_all_healthy_clusters()`.
+        from `list_healthy_clusters()`.
         """
         cluster_info: cpb.ClusterInfo = None
         if isinstance(cluster, ClusterID):
@@ -602,4 +584,4 @@ class Client:
             raise ValueError("Unexpected type for 'cluster': ", type(cluster))
 
         cluster_info = self._get_cluster_info(cluster_id)
-        return self._create_passthrough_conn(cluster_id, cluster_info)
+        return self._create_cluster_conn(cluster_id, cluster_info)

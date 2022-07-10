@@ -18,6 +18,20 @@
 
 import * as React from 'react';
 
+import { WithChildren } from 'app/utils/react-boilerplate';
+
+/** Returns true if Pixie appears to be in an iframe or is otherwise embedded. */
+export function isPixieEmbedded(): boolean {
+  try {
+    const isInFrame = globalThis.self !== globalThis.top;
+    const isCypress = !!(window as any).Cypress; // Make an exception for the testing framework
+
+    return isInFrame && !isCypress;
+  } catch (_) {
+    return true;
+  }
+}
+
 export interface EmbedContextProps {
   timeArg: string;
   setTimeArg: (time: string) => void;
@@ -26,7 +40,7 @@ export interface EmbedContextProps {
 export const EmbedContext = React.createContext<EmbedContextProps>(null);
 EmbedContext.displayName = 'EmbedContext';
 
-export const EmbedContextProvider = React.memo(({ children }) => {
+export const EmbedContextProvider = React.memo<WithChildren>(({ children }) => {
   const [timeArg, setTimeArg] = React.useState<string>('');
 
   return (

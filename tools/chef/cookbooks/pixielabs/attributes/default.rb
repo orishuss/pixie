@@ -16,10 +16,10 @@
 
 default['clang']               = {}
 default['clang']['deb']        =
-  'https://storage.googleapis.com/pixie-dev-public/clang-13.0-pl1.deb'
+  'https://storage.googleapis.com/pixie-dev-public/clang-14.0-pl1.deb'
 default['clang']['deb_sha256'] =
-  'f913dc8d3fa897b0e8a4b4a158ba85de364000c7a36aee71202143dd5e76d67c'
-default['clang']['version']    = "13.0-pl1"
+  '54d8712cad93eb5fe27d19384b6980ac1c319cdd9b678fdd52723b7447e5ba87'
+default['clang']['version']    = "14.0-pl1"
 
 default['gperftools']               = {}
 default['gperftools']['deb']        =
@@ -36,9 +36,14 @@ default['antlr'] = {}
 default['antlr']['download_path'] = 'https://www.antlr.org/download/antlr-4.9-complete.jar'
 default['antlr']['sha256'] = 'bd11b2464bc8aee5f51b119dff617101b77fa729540ee7f08241a6a672e6bc81'
 
+default['bazel']                     = {}
+default['bazel']['version']          = '5.2.0'
+default['bazel']['zsh_completions']  =
+  "https://raw.githubusercontent.com/bazelbuild/bazel/#{default['bazel']['version']}/scripts/zsh_completion/_bazel"
+default['bazel']['zcomp_sha256']     = '4094dc84add2f23823bc341186adf6b8487fbd5d4164bd52d98891c41511eba4'
+
 default['skaffold']                  = {}
 default['kubectl']                   = {}
-default['bazel']                     = {}
 default['golang']                    = {}
 default['minikube']                  = {}
 default['nodejs']                    = {}
@@ -56,23 +61,24 @@ default['golangci-lint']             = {}
 default['helm']                      = {}
 default['opm']                       = {}
 default['lego']                      = {}
-
+default['codecov']                   = {}
+default['gh']                        = {}
 
 if node[:platform] == 'ubuntu'
   default['bazel']['download_path'] =
-    'https://github.com/bazelbuild/bazel/releases/download/4.2.2/bazel-4.2.2-linux-x86_64'
+    "https://github.com/bazelbuild/bazel/releases/download/#{default['bazel']['version']}/bazel-#{default['bazel']['version']}-linux-x86_64"
   default['bazel']['sha256'] =
-    '11dea6c7cfd866ed520af19a6bb1d952f3e9f4ee60ffe84e63c0825d95cb5859'
+    'ae6944cf23baa5218fdb5f6d0ad7a7cf63c5b71eb463f47775e3f64828d340af'
 
   default['golang']['download_path'] =
-    'https://dl.google.com/go/go1.17.7.linux-amd64.tar.gz'
+    'https://dl.google.com/go/go1.18.3.linux-amd64.tar.gz'
   default['golang']['sha256'] =
-    '02b111284bedbfa35a7e5b74a06082d18632eff824fd144312f6063943d49259'
+    '956f8507b302ab0bb747613695cdae10af99bbd39a90cae522b7c0302cc27245'
 
   default['skaffold']['download_path'] =
-    'https://storage.googleapis.com/skaffold/releases/v1.12.1/skaffold-linux-amd64'
+    'https://storage.googleapis.com/skaffold/releases/v1.38.0/skaffold-linux-amd64'
   default['skaffold']['sha256']        =
-    'e96db5103448663d349072c515ddae33bdf05727689a9a3460f3f36a41a94b8e'
+    '3c347c9478880f22ebf95807c13371844769c625cf3ea9c987cd85859067503c'
 
   default['kubectl']['download_path'] =
     'https://storage.googleapis.com/kubernetes-release/release/v1.21.5/bin/linux/amd64/kubectl'
@@ -130,9 +136,9 @@ if node[:platform] == 'ubuntu'
     '82eb998370b05d2d9c05664f7270599ddcef676c1d211274a5e04ffddf6ac024'
 
   default['golangci-lint']['download_path'] =
-    'https://github.com/golangci/golangci-lint/releases/download/v1.39.0/golangci-lint-1.39.0-linux-amd64.tar.gz'
+    'https://github.com/golangci/golangci-lint/releases/download/v1.46.2/golangci-lint-1.46.2-linux-amd64.tar.gz'
   default['golangci-lint']['sha256']        =
-    '3a73aa7468087caa62673c8adea99b4e4dff846dc72707222db85f8679b40cbf'
+    '242cd4f2d6ac0556e315192e8555784d13da5d1874e51304711570769c4f2b9b'
 
   default['helm']['download_path'] = 'https://get.helm.sh/helm-v3.5.2-linux-amd64.tar.gz'
   default['helm']['sha256']        = '01b317c506f8b6ad60b11b1dc3f093276bb703281cb1ae01132752253ec706a2'
@@ -156,20 +162,30 @@ if node[:platform] == 'ubuntu'
     'https://github.com/go-acme/lego/releases/download/v4.5.3/lego_v4.5.3_linux_amd64.tar.gz'
   default['lego']['sha256']        =
     'd6a6dbf82ae9a1a7f9fbc8d85c224617a17337afa4284aaca6b0556a7347609d'
+
+  default['codecov']['download_path'] =
+    'https://uploader.codecov.io/v0.2.3/linux/codecov'
+  default['codecov']['sha256'] =
+    '648b599397548e4bb92429eec6391374c2cbb0edb835e3b3f03d4281c011f401'
+
+  default['gh']['download_path'] =
+    'https://github.com/cli/cli/releases/download/v2.12.1/gh_2.12.1_linux_amd64.tar.gz'
+  default['gh']['sha256']        =
+    '359ff9d759b67e174214098144a530a8afc4b0c9d738cd07c83ac84390cdc988'
 elsif node[:platform] == 'mac_os_x'
   default['bazel']['download_path'] =
-    'https://github.com/bazelbuild/bazel/releases/download/4.2.2/bazel-4.2.2-darwin-x86_64'
+    "https://github.com/bazelbuild/bazel/releases/download/#{default['bazel']['version']}/bazel-#{default['bazel']['version']}-darwin-x86_64"
   default['bazel']['sha256'] =
-    '288660a310193c492a38a0480c42c74789564c09511e6adc045b5b4b4f117f7d'
+    'edbe4c3a5efab799208ea0bc145bbf3330ff6e30a2cef065f9e1b337fede055b'
 
   default['golang']['download_path'] =
-    'https://dl.google.com/go/go1.17.7.darwin-amd64.tar.gz'
+    'https://dl.google.com/go/go1.18.3.darwin-amd64.tar.gz'
   default['golang']['sha256'] =
-    '7c3d9cc70ee592515d92a44385c0cba5503fd0a9950f78d76a4587916c67a84d'
+    'd9dcf8fc35da54c6f259be41954783a9f4984945a855d03a003a7fd6ea4c5ca1'
 
   default['skaffold']['download_path'] =
-    'https://storage.googleapis.com/skaffold/releases/v1.12.1/skaffold-darwin-amd64'
-  default['skaffold']['sha256']        = '6b2bd0ae47dda96d64661136222622d97aaa9bd020b67f77fb744f944cd47ae5'
+    'https://storage.googleapis.com/skaffold/releases/v1.38.0/skaffold-darwin-amd64'
+  default['skaffold']['sha256']        = '872897d78a17812913cd6e930c5d1c94f7c862381db820815c4bffc637c28b88'
 
   default['kubectl']['download_path'] =
     'https://storage.googleapis.com/kubernetes-release/release/v1.21.5/bin/darwin/amd64/kubectl'
@@ -226,9 +242,9 @@ elsif node[:platform] == 'mac_os_x'
     'a8ad2b7169763978a63605ac854473998729ba7c497dd39bed01b57a294bd32a'
 
   default['golangci-lint']['download_path'] =
-    'https://github.com/golangci/golangci-lint/releases/download/v1.39.0/golangci-lint-1.39.0-darwin-amd64.tar.gz'
+    'https://github.com/golangci/golangci-lint/releases/download/v1.46.2/golangci-lint-1.46.2-darwin-amd64.tar.gz'
   default['golangci-lint']['sha256']        =
-    '7e9a47ab540aa3e8472fbf8120d28bed3b9d9cf625b955818e8bc69628d7187c'
+    '658078aaaf7608693f37c4cf1380b2af418ab8b2d23fdb33e7e2d4339328590e'
 
   default['helm']['download_path'] = 'https://get.helm.sh/helm-v3.5.2-darwin-amd64.tar.gz'
   default['helm']['sha256']        = '68040e9a2f147a92c2f66ce009069826df11f9d1e1c6b78c7457066080ad3229'
@@ -252,4 +268,14 @@ elsif node[:platform] == 'mac_os_x'
     'https://github.com/go-acme/lego/releases/download/v4.5.3/lego_v4.5.3_darwin_amd64.tar.gz'
   default['lego']['sha256']        =
     'eaf2792d9731c911da671a6145eebd5ba136c20446adb542e7b1463ffe868388'
+
+  default['codecov']['download_path'] =
+    'https://uploader.codecov.io/v0.2.3/macos/codecov'
+  default['codecov']['sha256'] =
+    '8d3709d957c7115610e764621569728be102d213fee15bc1d1aa9d465eb2c258'
+
+  default['gh']['download_path'] =
+    'https://github.com/cli/cli/releases/download/v2.12.1/gh_2.12.1_macOS_amd64.tar.gz'
+  default['gh']['sha256']        =
+    '448d617c11b964cff135bab43f73b321386c09fc5cdd998a17cbfc422f54239e'
 end

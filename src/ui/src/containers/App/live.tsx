@@ -98,9 +98,6 @@ const ClusterIDShortcut = ({ match, location }) => {
 
   // eslint-disable-next-line react-memo/require-usememo
   let path = generatePath('/live/clusters/:cluster', { cluster });
-  if (match.path.startsWith('/embed')) {
-    path = `/embed${path}`;
-  }
   if (location.search) {
     path += location.search;
   }
@@ -332,6 +329,7 @@ export default function PixieWithContext(): React.ReactElement {
               <Route path={scriptPaths} component={ScriptShortcut} />
               <Route path='/setup' component={SetupRedirect} />
               <Route path='/configure-data-export' component={ConfigureDataExportView} />
+              <Route path='/embed/configure-data-export' component={ConfigureDataExportView} />
               <Redirect exact from='/' to='/live' />
               <Route path='/*' component={RouteNotFound} />
             </Switch>

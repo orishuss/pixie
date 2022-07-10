@@ -25,8 +25,9 @@
 
 #include "src/common/base/base.h"
 #include "src/stirling/core/source_connector.h"
+#include "src/stirling/source_connectors/stirling_error/probe_status_table.h"
 #include "src/stirling/source_connectors/stirling_error/stirling_error_table.h"
-#include "src/stirling/utils/connector_status_store.h"
+#include "src/stirling/utils/monitor.h"
 
 namespace px {
 namespace stirling {
@@ -36,8 +37,9 @@ class StirlingErrorConnector : public SourceConnector {
   static constexpr std::string_view kName = "stirling_error";
   static constexpr auto kSamplingPeriod = std::chrono::milliseconds{1000};
   static constexpr auto kPushPeriod = std::chrono::milliseconds{1000};
-  static constexpr auto kTables = MakeArray(kStirlingErrorTable);
+  static constexpr auto kTables = MakeArray(kStirlingErrorTable, kProbeStatusTable);
   static constexpr uint32_t kStirlingErrorTableNum = TableNum(kTables, kStirlingErrorTable);
+  static constexpr uint32_t kProbeStatusTableNum = TableNum(kTables, kProbeStatusTable);
 
   StirlingErrorConnector() = delete;
   ~StirlingErrorConnector() override = default;
@@ -51,15 +53,14 @@ class StirlingErrorConnector : public SourceConnector {
 
   void TransferDataImpl(ConnectorContext* ctx, const std::vector<DataTable*>& data_tables) override;
 
-  void SetConnectorStatusStore(ConnectorStatusStore* s) { connector_status_store_ = s; }
-
  private:
   explicit StirlingErrorConnector(std::string_view source_name)
       : SourceConnector(source_name, kTables) {}
 
   void TransferStirlingErrorTable(ConnectorContext* ctx, DataTable* data_table);
+  void TransferProbeStatusTable(ConnectorContext* ctx, DataTable* data_table);
 
-  ConnectorStatusStore* connector_status_store_ = nullptr;
+  StirlingMonitor& monitor_ = *StirlingMonitor::GetInstance();
   int32_t pid_ = -1;
   uint64_t start_time_ = -1;
 };

@@ -46,7 +46,8 @@ using ::testing::Pair;
 using ::testing::SizeIs;
 using ::testing::StrEq;
 
-class PostgreSQLTraceTest : public testing::SocketTraceBPFTest</* TClientSideTracing */ true> {
+class PostgreSQLTraceTest
+    : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ true> {
  protected:
   PostgreSQLTraceTest() {
     PL_CHECK_OK(container_.Run(std::chrono::seconds{150}, {"--env=POSTGRES_PASSWORD=docker"}));
@@ -95,7 +96,7 @@ TEST_F(PostgreSQLTraceTest, SelectQuery) {
 
   // --pid host is required to access the correct PID.
   constexpr char kCmdTmpl[] =
-      "docker run --pid host --rm -e PGPASSWORD=docker --network=container:$0 postgres bash -c "
+      "docker exec $0 bash -c "
       R"('psql -h localhost -U postgres -c "$1" &>/dev/null & echo $$! && wait')";
   const std::string kCreateTableCmd =
       absl::Substitute(kCmdTmpl, container_.container_name(),
@@ -186,7 +187,7 @@ TEST_F(PostgreSQLTraceTest, GolangSqlxDemo) {
 TEST_F(PostgreSQLTraceTest, FunctionCall) {
   // --pid host is required to access the correct PID.
   constexpr char kCmdTmpl[] =
-      "docker run --pid host --rm -e PGPASSWORD=docker --network=container:$0 postgres bash -c "
+      "docker exec $0 bash -c "
       R"('psql -h localhost -U postgres -c "$1" &>/dev/null & echo $$! && wait')";
   {
     StartTransferDataThread();

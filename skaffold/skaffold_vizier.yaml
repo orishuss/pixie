@@ -77,6 +77,12 @@ profiles:
     path: /deploy/kustomize/paths
     value:
     - k8s/vizier/jsyms
+- name: no-jsyms
+  patches:
+  - op: add
+    path: /deploy/kustomize/paths
+    value:
+    - k8s/vizier/no-jsyms
 - name: heap
   patches:
   - op: add

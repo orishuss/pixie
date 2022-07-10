@@ -16,6 +16,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <llvm/BinaryFormat/Dwarf.h>
+#include <llvm/Config/llvm-config.h>
+
 #include "src/stirling/obj_tools/dwarf_reader.h"
 
 #include <absl/container/flat_hash_set.h>
@@ -164,7 +167,15 @@ Status DwarfReader::DetectSourceLanguage() {
 
     const DWARFFormValue& producer_attr =
         GetAttribute(unit_die, llvm::dwarf::DW_AT_producer).ValueOr({});
-    compiler_ = producer_attr.getAsCString().getValueOr("");
+
+    auto s = producer_attr.getAsCString();
+#if LLVM_VERSION_MAJOR >= 14
+    if (!s.takeError()) {
+      compiler_ = s.get();
+    }
+#else
+    compiler_ = s.getValueOr("");
+#endif
 
     return Status::OK();
   }
@@ -885,7 +896,9 @@ ABI LanguageToABI(llvm::dwarf::SourceLanguage lang, const std::string& compiler)
       }
       return ABI::kGolangStack;
     case llvm::dwarf::DW_LANG_C:
+    case llvm::dwarf::DW_LANG_C89:
     case llvm::dwarf::DW_LANG_C99:
+    case llvm::dwarf::DW_LANG_C11:
     case llvm::dwarf::DW_LANG_C_plus_plus:
     case llvm::dwarf::DW_LANG_C_plus_plus_03:
     case llvm::dwarf::DW_LANG_C_plus_plus_11:

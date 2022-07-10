@@ -22,7 +22,8 @@
 
 #include "src/common/testing/testing.h"
 
-constexpr std::string_view kBinaryPath = "src/stirling/obj_tools/testdata/go/test_go_1_16_binary";
+constexpr std::string_view kBinaryPath =
+    "src/stirling/obj_tools/testdata/go/test_go_1_16_binary_/test_go_1_16_binary";
 
 namespace px {
 namespace stirling {
@@ -386,7 +387,7 @@ TEST(GenProgramTest, SpecsAndCode) {
   ir::physical::Program program;
 
   ASSERT_TRUE(TextFormat::ParseFromString(program_protobuf, &program));
-  program.mutable_deployment_spec()->set_path(px::testing::BazelBinTestFilePath(kBinaryPath));
+  program.mutable_deployment_spec()->set_path(px::testing::BazelRunfilePath(kBinaryPath));
 
   ASSERT_OK_AND_ASSIGN(const std::string bcc_code, GenBCCProgram(program));
 

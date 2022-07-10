@@ -26,8 +26,10 @@
 #include <pypa/parser/parser.hh>
 
 #include "src/api/proto/uuidpb/uuid.pb.h"
+#include "src/carnot/planner/compiler/graph_comparison.h"
 #include "src/carnot/planner/compiler/test_utils.h"
 #include "src/carnot/planner/distributed/distributed_planner.h"
+#include "src/carnot/planner/distributedpb/distributed_plan.pb.h"
 #include "src/carnot/planner/ir/ir.h"
 #include "src/carnot/planner/logical_planner.h"
 #include "src/carnot/planner/rules/rules.h"
@@ -38,7 +40,8 @@
 namespace px {
 namespace carnot {
 namespace planner {
-using px::testing::proto::EqualsProto;
+using ::px::carnot::planner::testing::EqualsPlanGraph;
+using ::px::testing::proto::EqualsProto;
 
 class LogicalPlannerTest : public ::testing::Test {
  protected:
@@ -53,22 +56,54 @@ class LogicalPlannerTest : public ::testing::Test {
 
 TEST_F(LogicalPlannerTest, one_pems_one_kelvin) {
   auto planner = LogicalPlanner::Create(info_).ConsumeValueOrDie();
-  auto plan = planner
-                  ->Plan(testutils::CreateOnePEMOneKelvinPlannerState(),
-                         MakeQueryRequest("import px\npx.display(px.DataFrame('table1'), 'out')"))
-                  .ConsumeValueOrDie();
-  auto out_pb = plan->ToProto().ConsumeValueOrDie();
-  EXPECT_THAT(out_pb, Partially(EqualsProto(testutils::kExpectedPlanOnePEMOneKelvin)))
-      << out_pb.DebugString();
+  ASSERT_OK_AND_ASSIGN(
+      auto plan,
+      planner->Plan(testutils::CreateOnePEMOneKelvinPlannerState(),
+                    MakeQueryRequest("import px\npx.display(px.DataFrame('table1'), 'out')")));
+  auto plan_pb = plan->ToProto().ConsumeValueOrDie();
+  distributedpb::DistributedPlan expected_pb;
+  google::protobuf::TextFormat::MergeFromString(testutils::kExpectedPlanOnePEMOneKelvin,
+                                                &expected_pb);
+
+  auto kelvin_plan = plan_pb.qb_address_to_plan().find("kelvin");
+  EXPECT_THAT(kelvin_plan->second,
+              EqualsPlanGraph(expected_pb.qb_address_to_plan().find("kelvin")->second));
+  ASSERT_NE(kelvin_plan, plan_pb.qb_address_to_plan().end());
+  EXPECT_EQ(kelvin_plan->second.execution_status_destinations_size(), 1);
+  EXPECT_EQ(kelvin_plan->second.execution_status_destinations()[0].grpc_address(),
+            "query-broker-ip:50300");
+  EXPECT_EQ(kelvin_plan->second.execution_status_destinations()[0].ssl_targetname(),
+            "query-broker-hostname");
+
+  auto pem_plan = plan_pb.qb_address_to_plan().find("pem");
+  EXPECT_THAT(pem_plan->second,
+              EqualsPlanGraph(expected_pb.qb_address_to_plan().find("pem")->second));
+  ASSERT_NE(pem_plan, plan_pb.qb_address_to_plan().end());
+  EXPECT_EQ(pem_plan->second.execution_status_destinations_size(), 1);
+  EXPECT_EQ(pem_plan->second.execution_status_destinations()[0].grpc_address(), "1111");
+  EXPECT_EQ(pem_plan->second.execution_status_destinations()[0].ssl_targetname(), "kelvin.pl.svc");
 }
 
 TEST_F(LogicalPlannerTest, distributed_plan_test_basic_queries) {
   auto planner = LogicalPlanner::Create(info_).ConsumeValueOrDie();
   auto ps = testutils::CreateTwoPEMsOneKelvinPlannerState(testutils::kHttpEventsSchema);
-  auto plan_or_s = planner->Plan(ps, MakeQueryRequest(testutils::kHttpRequestStats));
-  EXPECT_OK(plan_or_s);
-  auto plan = plan_or_s.ConsumeValueOrDie();
-  EXPECT_OK(plan->ToProto());
+  ASSERT_OK_AND_ASSIGN(auto plan,
+                       planner->Plan(ps, MakeQueryRequest(testutils::kHttpRequestStats)));
+  ASSERT_OK_AND_ASSIGN(auto plan_pb, plan->ToProto());
+
+  auto kelvin_plan = plan_pb.qb_address_to_plan().find("kelvin");
+  ASSERT_NE(kelvin_plan, plan_pb.qb_address_to_plan().end());
+  EXPECT_EQ(kelvin_plan->second.execution_status_destinations_size(), 1);
+  EXPECT_EQ(kelvin_plan->second.execution_status_destinations()[0].grpc_address(),
+            "query-broker-ip:50300");
+  EXPECT_EQ(kelvin_plan->second.execution_status_destinations()[0].ssl_targetname(),
+            "query-broker-hostname");
+
+  auto pem1_plan = plan_pb.qb_address_to_plan().find("pem1");
+  ASSERT_NE(pem1_plan, plan_pb.qb_address_to_plan().end());
+  EXPECT_EQ(pem1_plan->second.execution_status_destinations_size(), 1);
+  EXPECT_EQ(pem1_plan->second.execution_status_destinations()[0].grpc_address(), "1111");
+  EXPECT_EQ(pem1_plan->second.execution_status_destinations()[0].ssl_targetname(), "kelvin.pl.svc");
 }
 
 constexpr char kSimpleQueryDefaultLimit[] = R"pxl(
@@ -412,7 +447,7 @@ TEST_F(LogicalPlannerTest, CompileTrace) {
   plannerpb::CompileMutationsResponse resp;
   ASSERT_OK(trace_ir->ToProto(&resp));
   ASSERT_EQ(resp.mutations_size(), 1);
-  EXPECT_THAT(resp.mutations()[0].trace(), testing::proto::EqualsProto(kSingleProbeProgramPb));
+  EXPECT_THAT(resp.mutations()[0].trace(), EqualsProto(kSingleProbeProgramPb));
 }
 
 constexpr char kSingleProbeInFuncPxl[] = R"pxl(
@@ -454,7 +489,7 @@ TEST_F(LogicalPlannerTest, CompileTraceWithExecFuncs) {
   plannerpb::CompileMutationsResponse resp;
   ASSERT_OK(trace_ir->ToProto(&resp));
   ASSERT_EQ(resp.mutations_size(), 1);
-  EXPECT_THAT(resp.mutations()[0].trace(), testing::proto::EqualsProto(kSingleProbeProgramPb));
+  EXPECT_THAT(resp.mutations()[0].trace(), EqualsProto(kSingleProbeProgramPb));
 }
 constexpr char kBrokenFunc1234[] = R"pxl(
 ''' HTTP Data Tracer
@@ -608,6 +643,31 @@ TEST_F(LogicalPlannerTest, limit_pushdown_failing) {
   state.mutable_plan_options()->set_max_output_rows_per_table(10000);
 
   auto plan_or_s = planner->Plan(state, MakeQueryRequest(kLimitFailing));
+  EXPECT_OK(plan_or_s);
+  auto plan = plan_or_s.ConsumeValueOrDie();
+  auto proto_or_s = plan->ToProto();
+  ASSERT_OK(proto_or_s.status());
+}
+
+const char kFilterPushDownBugQuery[] = R"pxl(
+import px
+
+df = px.DataFrame(table='http_events', start_time='-6m')
+df.service = df.ctx['service']
+
+df.requestor_pod_id = px.ip_to_pod_id(df.remote_addr)
+df.responder_service = df.service
+df.requestor_service = px.pod_id_to_service_name(df.requestor_pod_id)
+df = df.groupby(['responder_service', 'requestor_service']).agg()
+
+df = df[df.requestor_service != '' and df.responder_service != '']
+
+px.display(df)
+)pxl";
+TEST_F(LogicalPlannerTest, filter_pushdown_bug) {
+  auto planner = LogicalPlanner::Create(info_).ConsumeValueOrDie();
+  auto state = testutils::CreateTwoPEMsOneKelvinPlannerState(testutils::kHttpEventsSchema);
+  auto plan_or_s = planner->Plan(state, MakeQueryRequest(kFilterPushDownBugQuery));
   EXPECT_OK(plan_or_s);
   auto plan = plan_or_s.ConsumeValueOrDie();
   auto proto_or_s = plan->ToProto();

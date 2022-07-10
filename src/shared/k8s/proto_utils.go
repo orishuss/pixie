@@ -19,6 +19,7 @@
 package k8s
 
 import (
+	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -72,18 +73,6 @@ var podConditionTypePbToObjMap = map[metadatapb.PodConditionType]v1.PodCondition
 	metadatapb.INITIALIZED:      v1.PodInitialized,
 	metadatapb.READY:            v1.PodReady,
 	metadatapb.POD_SCHEDULED:    v1.PodScheduled,
-}
-
-var podConditionStatusObjToPbMap = map[v1.ConditionStatus]metadatapb.PodConditionStatus{
-	v1.ConditionTrue:    metadatapb.STATUS_TRUE,
-	v1.ConditionFalse:   metadatapb.STATUS_FALSE,
-	v1.ConditionUnknown: metadatapb.STATUS_UNKNOWN,
-}
-
-var podConditionStatusPbToObjMap = map[metadatapb.PodConditionStatus]v1.ConditionStatus{
-	metadatapb.STATUS_TRUE:    v1.ConditionTrue,
-	metadatapb.STATUS_FALSE:   v1.ConditionFalse,
-	metadatapb.STATUS_UNKNOWN: v1.ConditionUnknown,
 }
 
 var ipProtocolObjToPbMap = map[v1.Protocol]metadatapb.IPProtocol{
@@ -148,10 +137,16 @@ var nodeAddressTypeToPbMap = map[v1.NodeAddressType]metadatapb.NodeAddressType{
 	v1.NodeInternalDNS: metadatapb.NODE_ADDR_TYPE_INTERNAL_DNS,
 }
 
-var conditionStatusToPbMap = map[v1.ConditionStatus]metadatapb.ConditionStatus{
-	v1.ConditionTrue:    metadatapb.NODE_CONDITION_STATUS_TRUE,
-	v1.ConditionFalse:   metadatapb.NODE_CONDITION_STATUS_FALSE,
-	v1.ConditionUnknown: metadatapb.NODE_CONDITION_STATUS_UNKNOWN,
+var conditionStatusObjToPbMap = map[v1.ConditionStatus]metadatapb.ConditionStatus{
+	v1.ConditionTrue:    metadatapb.CONDITION_STATUS_TRUE,
+	v1.ConditionFalse:   metadatapb.CONDITION_STATUS_FALSE,
+	v1.ConditionUnknown: metadatapb.CONDITION_STATUS_UNKNOWN,
+}
+
+var conditionStatusPbToObjMap = map[metadatapb.ConditionStatus]v1.ConditionStatus{
+	metadatapb.CONDITION_STATUS_TRUE:    v1.ConditionTrue,
+	metadatapb.CONDITION_STATUS_FALSE:   v1.ConditionFalse,
+	metadatapb.CONDITION_STATUS_UNKNOWN: v1.ConditionUnknown,
 }
 
 var conditionTypeToPbMap = map[v1.NodeConditionType]metadatapb.NodeConditionType{
@@ -272,7 +267,7 @@ func PodStatusToProto(ps *v1.PodStatus) *metadatapb.PodStatus {
 	for i, c := range ps.Conditions {
 		conditions[i] = &metadatapb.PodCondition{
 			Type:   podConditionTypeObjToPbMap[c.Type],
-			Status: podConditionStatusObjToPbMap[c.Status],
+			Status: conditionStatusObjToPbMap[c.Status],
 		}
 	}
 
@@ -307,7 +302,7 @@ func PodStatusFromProto(pb *metadatapb.PodStatus) *v1.PodStatus {
 	for i, c := range pb.Conditions {
 		conditions[i] = v1.PodCondition{
 			Type:   podConditionTypePbToObjMap[c.Type],
-			Status: podConditionStatusPbToObjMap[c.Status],
+			Status: conditionStatusPbToObjMap[c.Status],
 		}
 	}
 
@@ -616,7 +611,7 @@ func NodeStatusToProto(n *v1.NodeStatus) *metadatapb.NodeStatus {
 	for i, c := range n.Conditions {
 		conds[i] = &metadatapb.NodeCondition{
 			Type:   conditionTypeToPbMap[c.Type],
-			Status: conditionStatusToPbMap[c.Status],
+			Status: conditionStatusObjToPbMap[c.Status],
 		}
 	}
 
@@ -632,5 +627,77 @@ func NodeSpecToProto(n *v1.NodeSpec) *metadatapb.NodeSpec {
 	return &metadatapb.NodeSpec{
 		PodCIDRs: n.PodCIDRs,
 		PodCIDR:  n.PodCIDR,
+	}
+}
+
+// ReplicaSetToProto converts a k8s ReplicaSet object into a proto.
+func ReplicaSetToProto(rs *apps.ReplicaSet) *metadatapb.ReplicaSet {
+	return &metadatapb.ReplicaSet{
+		Metadata: ObjectMetadataToProto(&rs.ObjectMeta),
+		Spec:     ReplicaSetSpecToProto(&rs.Spec),
+		Status:   ReplicaSetStatusToProto(&rs.Status),
+	}
+}
+
+// ReplicaSetStatusToProto converts a k8s ReplicaSet status into a proto.
+func ReplicaSetStatusToProto(rss *apps.ReplicaSetStatus) *metadatapb.ReplicaSetStatus {
+	conditions := make([]*metadatapb.ReplicaSetCondition, len(rss.Conditions))
+	for i, c := range rss.Conditions {
+		conditions[i] = &metadatapb.ReplicaSetCondition{
+			Type:   string(c.Type),
+			Status: conditionStatusObjToPbMap[c.Status],
+		}
+	}
+
+	return &metadatapb.ReplicaSetStatus{
+		Replicas:             rss.Replicas,
+		FullyLabeledReplicas: rss.FullyLabeledReplicas,
+		ReadyReplicas:        rss.ReadyReplicas,
+		AvailableReplicas:    rss.AvailableReplicas,
+		ObservedGeneration:   rss.ObservedGeneration,
+		Conditions:           conditions,
+	}
+}
+
+// ReplicaSetSpecToProto converts a k8s ReplicaSet spec into a proto.
+func ReplicaSetSpecToProto(rs *apps.ReplicaSetSpec) *metadatapb.ReplicaSetSpec {
+	var replicas int32
+	if rs.Replicas == nil {
+		replicas = 1
+	} else {
+		replicas = int32(*rs.Replicas)
+	}
+
+	return &metadatapb.ReplicaSetSpec{
+		Replicas:        replicas,
+		MinReadySeconds: rs.MinReadySeconds,
+		Selector:        LabelSelectorToProto(rs.Selector),
+		Template:        PodTemplateSpecToProto(rs.Template),
+	}
+}
+
+// LabelSelectorToProto converts a k8s label selector to proto.
+func LabelSelectorToProto(ls *metav1.LabelSelector) *metadatapb.LabelSelector {
+	matchExpressions := make([]*metadatapb.LabelSelectorRequirement, len(ls.MatchExpressions))
+
+	for i, me := range ls.MatchExpressions {
+		matchExpressions[i] = &metadatapb.LabelSelectorRequirement{
+			Key:      me.Key,
+			Operator: string(me.Operator),
+			Values:   me.Values,
+		}
+	}
+
+	return &metadatapb.LabelSelector{
+		MatchLabels:      ls.MatchLabels,
+		MatchExpressions: matchExpressions,
+	}
+}
+
+// PodTemplateSpecToProto converts a k8s pod template spec to proto.
+func PodTemplateSpecToProto(ts v1.PodTemplateSpec) *metadatapb.PodTemplateSpec {
+	return &metadatapb.PodTemplateSpec{
+		Metadata: ObjectMetadataToProto(&ts.ObjectMeta),
+		Spec:     PodSpecToProto(&ts.Spec),
 	}
 }

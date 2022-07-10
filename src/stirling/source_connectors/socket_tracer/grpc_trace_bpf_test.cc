@@ -45,13 +45,13 @@ class GRPCServer {
  public:
   static constexpr std::string_view kServerPath =
       "src/stirling/source_connectors/socket_tracer/protocols/http2/testing/go_grpc_server/"
-      "golang_$0_grpc_server";
+      "golang_$0_grpc_server_/golang_$0_grpc_server";
 
   GRPCServer() = default;
 
   void LaunchServer(std::string go_version, bool use_https) {
     std::string server_path = absl::Substitute(kServerPath, go_version);
-    server_path = px::testing::BazelBinTestFilePath(server_path).string();
+    server_path = px::testing::BazelRunfilePath(server_path).string();
     CHECK(fs::Exists(server_path));
 
     const std::string https_flag = use_https ? "--https=true" : "--https=false";
@@ -81,11 +81,11 @@ class GRPCClient {
  public:
   static constexpr std::string_view kClientPath =
       "src/stirling/source_connectors/socket_tracer/protocols/http2/testing/go_grpc_client/"
-      "golang_$0_grpc_client";
+      "golang_$0_grpc_client_/golang_$0_grpc_client";
 
   void LaunchClient(std::string_view go_version, bool use_compression, bool use_https, int port) {
     std::string client_path = absl::Substitute(kClientPath, go_version);
-    client_path = px::testing::BazelBinTestFilePath(client_path).string();
+    client_path = px::testing::BazelRunfilePath(client_path).string();
 
     CHECK(fs::Exists(client_path));
 
@@ -107,7 +107,7 @@ struct TestParams {
   bool use_https;
 };
 
-class GRPCTraceTest : public testing::SocketTraceBPFTest</* TClientSideTracing */ false>,
+class GRPCTraceTest : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false>,
                       public ::testing::WithParamInterface<TestParams> {
  protected:
   GRPCTraceTest() {}

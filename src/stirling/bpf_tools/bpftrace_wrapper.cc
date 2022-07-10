@@ -135,6 +135,18 @@ std::vector<std::string> ClangCompileFlags(bool has_btf, std::vector<std::string
   return extra_flags;
 }
 
+// Redirects stderr and collect the output to a string.
+class CerrRedirect {
+ public:
+  CerrRedirect() { old_ = std::cerr.rdbuf(buffer_.rdbuf()); }
+  ~CerrRedirect() { std::cerr.rdbuf(old_); }
+  std::string GetString() const { return buffer_.str(); }
+
+ private:
+  std::stringstream buffer_;
+  std::streambuf* old_;
+};
+
 // This compile function is inspired from the bpftrace project's main.cpp.
 // Changes to bpftrace may need to be reflected back to this function on a bpftrace update.
 Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::string>& params) {
@@ -148,10 +160,10 @@ Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::
   // For readability, use two separate variables for the two models.
   int err;
   int success;
+  std::string err_msg;
 
   // This ensures system headers be installed correctly inside a container.
-  PL_ASSIGN_OR_RETURN(std::filesystem::path sys_headers_dir,
-                      utils::FindOrInstallLinuxHeaders({utils::kDefaultHeaderSearchOrder}));
+  PL_ASSIGN_OR_RETURN(std::filesystem::path sys_headers_dir, utils::FindOrInstallLinuxHeaders());
   LOG(INFO) << absl::Substitute("Using linux headers found at $0 for BPFtrace runtime.",
                                 sys_headers_dir.string());
 
@@ -163,31 +175,51 @@ Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::
     bpftrace_.add_param(param);
   }
 
+#define ERR_MSG "Could not compile bpftrace script, "
+
   // Script from string (command line argument)
   bpftrace::Driver driver(bpftrace_);
-  driver.source("stdin", std::string(script));
-  err = driver.parse();
+  driver.source(/*file_name*/ "stdin", std::string(script));
+  {
+    CerrRedirect cerr_redirect;
+    // Driver calls yacc's generated parser, which has a very complicated error reporting structure.
+    // So capture std::cerr for collecting errors.
+    err = driver.parse();
+    err_msg = cerr_redirect.GetString();
+  }
   if (err != 0) {
-    return error::Internal("Could not parse bpftrace script.");
+    return error::Internal(ERR_MSG "failed to parse: $0", err_msg);
   }
 
-  bpftrace::ast::FieldAnalyser fields(driver.root.get(), bpftrace_);
+  // This collects the error messages emitted during the FieldAnalyser's analysis.
+  std::ostringstream field_analyser_oss;
+  bpftrace::ast::FieldAnalyser fields(driver.root.get(), bpftrace_, field_analyser_oss);
   err = fields.analyse();
   if (err != 0) {
-    return error::Internal("FieldAnalyser failed.");
+    return error::Internal(ERR_MSG "invalid field: $0", field_analyser_oss.str());
   }
 
-  success = bpftrace::TracepointFormatParser::parse(driver.root.get(), bpftrace_);
+  {
+    CerrRedirect cerr_redirect;
+    // TracepointFormatParser does not provide internal error recording, and the error is directly
+    // logged to std::cerr.
+    success = bpftrace::TracepointFormatParser::parse(driver.root.get(), bpftrace_);
+    err_msg = cerr_redirect.GetString();
+  }
   if (!success) {
-    return error::Internal("TracepointFormatParser failed.");
+    return error::Internal(ERR_MSG "invalid tracepoint: $0", err_msg);
   }
 
   std::vector<std::string> clang_compile_flags = ClangCompileFlags(bpftrace_.feature_->has_btf());
 
   bpftrace::ClangParser clang;
-  success = clang.parse(driver.root.get(), bpftrace_, clang_compile_flags);
+  // TODO(yzhao): Return error messages from ClangParserHandler::get_error_messages().
+  // Needs to update bpftrace source code.
+  std::vector<std::string> clang_parser_err_msgs;
+  success = clang.parse(driver.root.get(), bpftrace_, clang_compile_flags, &clang_parser_err_msgs);
   if (!success) {
-    return error::Internal("Clang parse failed.");
+    return error::Internal(ERR_MSG "Clang parse failed: $0",
+                           absl::StrJoin(clang_parser_err_msgs, "\n"));
   }
 
   bpftrace::ast::PassContext ctx(bpftrace_);
@@ -197,7 +229,8 @@ Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::
   pm.AddPass(bpftrace::ast::CreateResourcePass());
   auto result = pm.Run(std::move(driver.root), ctx);
   if (!result.Ok()) {
-    return error::Internal("$0 pass failed: $1", result.GetErrorPass().value_or("Unknown pass"),
+    return error::Internal(ERR_MSG "$0 pass failed: $1",
+                           result.GetErrorPass().value_or("Unknown pass"),
                            result.GetErrorMsg().value_or("-"));
   }
   std::unique_ptr<bpftrace::ast::Node> ast_root(result.Root());
@@ -210,6 +243,7 @@ Status BPFTraceWrapper::Compile(std::string_view script, const std::vector<std::
 
   compiled_ = true;
 
+#undef ERR_MSG
   return Status::OK();
 }
 
@@ -250,14 +284,14 @@ Status BPFTraceWrapper::CheckPrintfs() const {
     return error::Internal("The BPFTrace program must contain at least one printf statement.");
   }
 
-  const std::string& fmt = std::get<0>(bpftrace_.resources.printf_args[0]);
+  const auto& fmt = std::get<0>(bpftrace_.resources.printf_args[0]);
   for (size_t i = 1; i < bpftrace_.resources.printf_args.size(); ++i) {
-    const std::string& fmt_i = std::get<0>(bpftrace_.resources.printf_args[i]);
-    if (fmt_i != fmt) {
+    const auto& fmt_i = std::get<0>(bpftrace_.resources.printf_args[i]);
+    if (fmt_i.str() != fmt.str()) {
       return error::Internal(
           "All printf statements must have exactly the same format string. [$0] does not match "
           "[$1]",
-          fmt_i, fmt);
+          fmt_i.str(), fmt.str());
     }
   }
 
@@ -275,7 +309,8 @@ std::string_view BPFTraceWrapper::OutputFmtStr() const {
   DCHECK(compiled_) << "Must compile first.";
   DCHECK(printf_to_table_) << "OutputFmtStr() on supported if compiling with printf_to_table";
 
-  return std::string_view(std::get<0>(bpftrace_.resources.printf_args.front()));
+  const auto& fmt_str = std::get<0>(bpftrace_.resources.printf_args.front());
+  return std::string_view(fmt_str.c_str(), fmt_str.length());
 }
 
 bpftrace::BPFTraceMap BPFTraceWrapper::GetBPFMap(const std::string& name) {

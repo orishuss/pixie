@@ -4,17 +4,6 @@
 import java.net.URLEncoder
 import jenkins.model.Jenkins
 
-// Choose a label from configuration here:
-// https://jenkins.corp.pixielabs.ai/configureClouds/
-//
-// IMPORTANT: Make sure worker node is one with a 4.14 kernel,
-// to ensure that we don't have BPF compatibility regressions.
-//
-// Technically, only the BPF jobs need this kind of worker node,
-// but all jobs currently use this node for simplicity and
-// to maintain better node utilization (minimize GCP dollars).
-WORKER_NODE = 'jenkins-worker-with-4.14-kernel'
-
 /**
   * PhabConnector handles all communication with phabricator if the build
   * was triggered by a phabricator run.
@@ -106,10 +95,30 @@ K8S_TESTING_CLUSTER = 'https://cloud-testing.internal.corp.pixielabs.ai'
 K8S_TESTING_CREDS = 'pixie-prod-testing-cluster'
 
 // PXL Docs variables.
-PXL_DOCS_BINARY = '//src/carnot/docstring:docstring_integration'
+PXL_DOCS_BINARY = '//src/carnot/docstring:docstring'
 PXL_DOCS_FILE = 'pxl-docs.json'
 PXL_DOCS_BUCKET = 'pl-docs'
 PXL_DOCS_GCS_PATH = "gs://${PXL_DOCS_BUCKET}/${PXL_DOCS_FILE}"
+
+// BPF Setup.
+// The default kernel should be the oldest supported kernel
+// to ensure that we don't have BPF compatibility regressions.
+BPF_DEFAULT_KERNEL='4.14'
+// A list of kernels to test. A jenkins worker with template
+// named `jenkins-worker-with-${kernel}-kernel` should exist.
+def BPF_KERNELS = ['4.14', '5.18.4']
+
+def BPF_KERNELS_TO_TEST = [BPF_DEFAULT_KERNEL]
+
+// Currently disabling TSAN on BPF builds because it runs too slow.
+// In particular, the uprobe deployment takes far too long. See issue:
+//    https://pixie-labs.atlassian.net/browse/PL-1329
+// The benefit of TSAN on such runs is marginal anyways, because the tests
+// are mostly single-threaded.
+runBPFWithTSAN = false
+
+// TODO(yzhao/oazizi): PP-2276 Fix the BPF ASAN tests.
+runBPFWithASAN = false
 
 // This variable store the dev docker image that we need to parse before running any docker steps.
 devDockerImageWithTag = ''
@@ -122,8 +131,10 @@ isMainCodeReviewRun =  (env.JOB_NAME == 'pixie-dev/main-phab-test' || env.JOB_NA
 
 isMainRun =  (env.JOB_NAME == 'pixie-main/build-and-test-all')
 isNightlyTestRegressionRun = (env.JOB_NAME == 'pixie-main/nightly-test-regression')
+isNightlyBPFTestRegressionRun = (env.JOB_NAME == 'pixie-main/nightly-test-regression-bpf')
 
 isCopybaraPublic = env.JOB_NAME.startsWith('pixie-main/copybara-public')
+isCopybaraTags = env.JOB_NAME.startsWith('pixie-main/copybara-tags')
 isCopybaraPxAPI = env.JOB_NAME.startsWith('pixie-main/copybara-pxapi-go')
 
 isOSSMainRun = (env.JOB_NAME == 'pixie-oss/build-and-test-all')
@@ -135,20 +146,13 @@ isVizierBuildRun = env.JOB_NAME.startsWith('pixie-release/vizier/')
 isCloudProdBuildRun = env.JOB_NAME.startsWith('pixie-release/cloud/')
 isCloudStagingBuildRun = env.JOB_NAME.startsWith('pixie-release/cloud-staging/')
 
-// Disable BPF runs on main because the flakiness makes it noisy.
-// Stirling team still gets coverage via dev runs for now.
-// TODO(oazizi): Re-enable BPF on main once it's more stable.
-runBPF = !isMainRun
+// Build tags are used to modify the behavior of the build.
+// Note: Tags only work for code-review builds.
+// Enable the BPF build, even if it's not required.
+buildTagBPFBuild = false
+// Enable BPF build across all tested kernels.
+buildTagBPFBuildAllKernels = false
 
-// Currently disabling TSAN on BPF builds because it runs too slow.
-// In particular, the uprobe deployment takes far too long. See issue:
-//    https://pixie-labs.atlassian.net/browse/PL-1329
-// The benefit of TSAN on such runs is marginal anyways, because the tests
-// are mostly single-threaded.
-runBPFWithTSAN = false
-
-// TODO(yzhao/oazizi): PP-2276 Fix the BPF ASAN tests.
-runBPFWithASAN = false
 
 def WithGCloud(Closure body) {
   if (env.KUBERNETES_SERVICE_HOST) {
@@ -168,6 +172,21 @@ def gsutilCopy(String src, String dest) {
     gsutil -o GSUtil:parallel_composite_upload_threshold=150M cp ${src} ${dest}
     """
   }
+}
+
+def bbLinks() {
+    def linkURL = "--build_metadata=BUILDBUDDY_LINKS='[Jenkins](${BUILD_URL})"
+    if (isPhabricatorTriggeredBuild()) {
+      def phabricator_link = ''
+      if (params.REVISION) {
+        phabricator_link = "${phabConnector.URL}/D${REVISION}"
+      } else {
+        phabricator_link = "${phabConnector.URL}/r${phabConnector.repository}${env.PHAB_COMMIT}"
+      }
+      linkURL += ",[Phabricator](${phabricator_link})"
+    }
+    linkURL += "'"
+    return linkURL
 }
 
 def stashOnGCS(String name, String pattern, String excludes = '') {
@@ -265,6 +284,7 @@ def writeBazelRCFile() {
     // Don't upload to remote cache if this is not running main.
     sh '''
     echo "build --remote_upload_local_results=false" >> jenkins.bazelrc
+    echo "build --build_metadata=ROLE=DEV" >> jenkins.bazelrc
     '''
   } else {
     // Only set ROLE=CI if this is running on main. This controls the whether this
@@ -321,6 +341,11 @@ def WithSourceCodeK8s(String suffix="${UUID.randomUUID()}", Closure body) {
   warnError('Script failed') {
     DefaultBuildPodTemplate(suffix) {
       timeout(time: 90, unit: 'MINUTES') {
+        container('pxbuild') {
+          sh '''
+            git config --global --add safe.directory `pwd`
+          '''
+        }
         container('gcloud') {
           unstashFromGCS(SRC_STASH_NAME)
           sh 'cp ci/bes-k8s.bazelrc bes.bazelrc'
@@ -340,21 +365,21 @@ def WithSourceCodeAndTargetsK8s(String suffix="${UUID.randomUUID()}", Closure bo
   }
 }
 
-def WithSourceCodeAndTargetsDocker(String stashName = SRC_STASH_NAME, Closure body) {
+def WithSourceCodeAndTargetsBPFEnv(String stashName = SRC_STASH_NAME, String kernel = BPF_DEFAULT_KERNEL, Closure body) {
   warnError('Script failed') {
-    WithSourceCodeFatalError(stashName) {
+    WithSourceCodeFatalErrorBPFEnv(stashName, kernel, {
       unstashFromGCS(TARGETS_STASH_NAME)
       body()
-    }
+    })
   }
 }
 
 /**
   * This function checks out the source code and wraps the builds steps.
   */
-def WithSourceCodeFatalError(String stashName = SRC_STASH_NAME, Closure body) {
+def WithSourceCodeFatalErrorBPFEnv(String stashName = SRC_STASH_NAME, String kernel, Closure body) {
   timeout(time: 90, unit: 'MINUTES') {
-    node(WORKER_NODE) {
+    node("jenkins-worker-with-${kernel}-kernel") {
       sh 'hostname'
       deleteDir()
       unstashFromGCS(stashName)
@@ -383,7 +408,7 @@ def dockerStep(String dockerConfig = '', String dockerImage = devDockerImageWith
 
 def runBazelCmd(String f, String targetConfig, int retries = 5) {
   def retval = sh(
-    script: "bazel ${f}",
+    script: "bazel ${f} ${bbLinks()} --build_metadata=CONFIG=${targetConfig}",
     returnStatus: true
   )
 
@@ -594,6 +619,17 @@ def checkoutAndInitialize() {
       deleteDir()
       checkout scm
       InitializeRepoState()
+      if(isPhabricatorTriggeredBuild()) {
+        def logMessage = sh (
+          script: "git log origin/main..",
+          returnStdout: true,
+        ).trim()
+
+        def hasTag = {log, tag -> (log ==~ "(?s).*#ci:${tag}(\\s|\$).*")}
+
+        buildTagBPFBuild = hasTag(logMessage, 'bpf-build')
+        buildTagBPFBuildAllKernels = hasTag(logMessage, 'bpf-build-all-kernels')
+      }
     }
   }
 }
@@ -684,28 +720,28 @@ def buildGCC = {
 
 def dockerArgsForBPFTest = '--privileged --pid=host -v /:/host -v /sys:/sys --env PL_HOST_PATH=/host'
 
-def buildAndTestBPFOpt = {
-  WithSourceCodeAndTargetsDocker {
+def buildAndTestBPFOpt = { kernel ->
+  WithSourceCodeAndTargetsBPFEnv(SRC_STASH_NAME, kernel, {
     dockerStep(dockerArgsForBPFTest, {
       bazelCICmd('build-bpf', 'bpf', 'opt', 'bpf')
     })
-  }
+  })
 }
 
-def buildAndTestBPFASAN = {
-  WithSourceCode {
+def buildAndTestBPFASAN = { kernel ->
+  WithSourceCodeAndTargetsBPFEnv(SRC_STASH_NAME, kernel, {
     dockerStep(dockerArgsForBPFTest, {
       bazelCICmd('build-bpf-asan', 'bpf_asan', 'dbg', 'bpf_sanitizer')
     })
-  }
+  })
 }
 
-def buildAndTestBPFTSAN = {
-  WithSourceCodeAndTargetsDocker {
+def buildAndTestBPFTSAN = { kernel ->
+  WithSourceCodeAndTargetsBPFEnv(SRC_STASH_NAME, kernel, {
     dockerStep(dockerArgsForBPFTest, {
       bazelCICmd('build-bpf-tsan', 'bpf_tsan', 'dbg', 'bpf_sanitizer')
     })
-  }
+  })
 }
 
 def generateTestTargets = {
@@ -713,9 +749,9 @@ def generateTestTargets = {
     builders['Build & Test (clang:opt + UI)'] = buildAndTestOptWithUI
   }
 
-  enableForTargets('clang_tidy') {
-    builders['Clang-Tidy'] = buildClangTidy
-  }
+//  enableForTargets('clang_tidy') {
+//    builders['Clang-Tidy'] = buildClangTidy
+//  }
 
   enableForTargets('clang_dbg') {
     builders['Build & Test (dbg)'] = buildDbg
@@ -737,21 +773,21 @@ def generateTestTargets = {
     builders['Build & Test (go race detector)'] = buildGoRace
   }
 
-  if (runBPF) {
+  BPF_KERNELS_TO_TEST.each { kernel ->
     enableForTargets('bpf') {
-      builders['Build & Test (bpf tests - opt)'] = buildAndTestBPFOpt
+      builders["Build & Test (bpf tests - opt) - ${kernel}"] = { buildAndTestBPFOpt(kernel) }
     }
-  }
 
-  if (runBPFWithASAN) {
-    enableForTargets('bpf_sanitizer') {
-      builders['Build & Test (bpf tests - asan)'] = buildAndTestBPFASAN
+    if (runBPFWithASAN) {
+      enableForTargets('bpf_sanitizer') {
+        builders["Build & Test (bpf tests - asan) - ${kernel}"] = { buildAndTestBPFASAN(kernel) }
+      }
     }
-  }
 
-  if (runBPFWithTSAN) {
-    enableForTargets('bpf_sanitizer') {
-      builders['Build & Test (bpf tests - tsan)'] = buildAndTestBPFTSAN
+    if (runBPFWithTSAN) {
+      enableForTargets('bpf_sanitizer') {
+        builders["Build & Test (bpf tests - tsan) - ${kernel}"] = { buildAndTestBPFTSAN(kernel) }
+      }
     }
   }
 }
@@ -759,17 +795,27 @@ def generateTestTargets = {
 preBuild['Process Dependencies'] = {
   WithSourceCodeK8s('process-deps') {
     container('pxbuild') {
-      if (isMainRun || isNightlyTestRegressionRun || isOSSMainRun) {
-        sh '''
-        ./ci/bazel_build_deps.sh -a
-        wc -l bazel_*
-        '''
-      } else {
-        sh '''
-        ./ci/bazel_build_deps.sh
-        wc -l bazel_*
-        '''
+      def forceAll = ''
+      def enableBPF = ''
+
+      if (isMainRun || isNightlyTestRegressionRun || isOSSMainRun || isNightlyBPFTestRegressionRun) {
+        forceAll = '-a'
+        enableBPF = '-b'
       }
+
+      if (buildTagBPFBuild || buildTagBPFBuildAllKernels) {
+        enableBPF = '-b'
+      }
+
+      sh """
+      ./ci/bazel_build_deps.sh ${forceAll} ${enableBPF}
+      wc -l bazel_*
+      """
+
+      if (buildTagBPFBuildAllKernels) {
+        BPF_KERNELS_TO_TEST = BPF_KERNELS
+      }
+
       stashOnGCS(TARGETS_STASH_NAME, 'bazel_*')
       generateTestTargets()
     }
@@ -778,8 +824,10 @@ preBuild['Process Dependencies'] = {
 
 if (isMainRun || isOSSMainRun) {
   def codecovToken = 'pixie-codecov-token'
+  def slug = 'pixie-labs/pixielabs'
   if (isOSSMainRun) {
     codecovToken = 'pixie-oss-codecov-token'
+    slug = 'pixie-io/pixie'
   }
   // Only run coverage on main runs.
   builders['Build & Test (gcc:coverage)'] = {
@@ -792,7 +840,7 @@ if (isMainRun || isOSSMainRun) {
               variable: 'CODECOV_TOKEN'
             )
           ]) {
-            sh "ci/collect_coverage.sh -u -t ${CODECOV_TOKEN} -b main -c `cat GIT_COMMIT`"
+            sh "ci/collect_coverage.sh -u -t ${CODECOV_TOKEN} -b main -c `cat GIT_COMMIT` -r " + slug
           }
         }
         createBazelStash('build-gcc-coverage-testlogs')
@@ -973,6 +1021,23 @@ def buildScriptForCommits = {
  * REGRESSION_BUILDERS: This sections defines all the test regressions steps
  * that will happen in parallel.
  *****************************************************************************/
+def BPFRegressionBuilders = [:]
+
+BPF_KERNELS.each { kernel ->
+  BPFRegressionBuilders["Test (opt) ${kernel}"] = {
+    WithSourceCodeAndTargetsBPFEnv(SRC_STASH_NAME, kernel, {
+      dockerStep(dockerArgsForBPFTest, {
+        bazelCICmd('build-bpf', 'bpf', 'opt', 'bpf')
+      })
+    })
+  }
+}
+
+
+/*****************************************************************************
+ * REGRESSION_BUILDERS: This sections defines all the test regressions steps
+ * that will happen in parallel.
+ *****************************************************************************/
 def regressionBuilders = [:]
 
 TEST_ITERATIONS = 5
@@ -980,10 +1045,8 @@ TEST_ITERATIONS = 5
 regressionBuilders['Test (opt)'] = {
   WithSourceCodeAndTargetsK8s {
     container('pxbuild') {
-      sh """
-      bazel test -c opt  --runs_per_test ${TEST_ITERATIONS} \
-        --target_pattern_file bazel_tests_clang_opt
-      """
+      runBazelCmd("test -c opt --runs_per_test ${TEST_ITERATIONS} \
+        --target_pattern_file bazel_tests_opt", 'opt', 1)
       createBazelStash('build-opt-testlogs')
     }
   }
@@ -992,10 +1055,8 @@ regressionBuilders['Test (opt)'] = {
 regressionBuilders['Test (ASAN)'] = {
   WithSourceCodeAndTargetsK8s {
     container('pxbuild') {
-      sh """
-      bazel test --config asan  --runs_per_test ${TEST_ITERATIONS} \
-        --target_pattern_file bazel_tests_sanitizer
-      """
+      runBazelCmd("test --config asan --runs_per_test ${TEST_ITERATIONS} \
+        --target_pattern_file bazel_tests_sanitizer", 'asan', 1)
       createBazelStash('build-asan-testlogs')
     }
   }
@@ -1004,10 +1065,8 @@ regressionBuilders['Test (ASAN)'] = {
 regressionBuilders['Test (TSAN)'] = {
   WithSourceCodeAndTargetsK8s {
     container('pxbuild') {
-      sh """
-      bazel test --config tsan  --runs_per_test ${TEST_ITERATIONS} \
-        --target_pattern_file bazel_tests_sanitizer
-      """
+      runBazelCmd("test --config tsan --runs_per_test ${TEST_ITERATIONS} \
+        --target_pattern_file bazel_tests_sanitizer", 'tsan', 1)
       createBazelStash('build-tsan-testlogs')
     }
   }
@@ -1017,7 +1076,7 @@ regressionBuilders['Test (TSAN)'] = {
  * END REGRESSION_BUILDERS
  *****************************************************************************/
 
-def buildScriptForNightlyTestRegression = {
+def buildScriptForNightlyTestRegression = { testjobs ->
   try {
     stage('Checkout code') {
       checkoutAndInitialize()
@@ -1026,7 +1085,7 @@ def buildScriptForNightlyTestRegression = {
       parallel(preBuild)
     }
     stage('Testing') {
-      parallel(regressionBuilders)
+      parallel(testjobs)
     }
     stage('Archive') {
       DefaultGCloudPodTemplate('archive') {
@@ -1079,6 +1138,14 @@ def  buildScriptForCLIRelease = {
       string(
         credentialsId: 'docker_access_token',
         variable: 'DOCKER_TOKEN'
+      ),
+      string(
+        credentialsId: 'buildbot-gpg-key-id',
+        variable: 'BUILDBOT_GPG_KEY_ID'
+      ),
+      string(
+        credentialsId: 'buildbot-github-token',
+        variable: 'GITHUB_TOKEN'
       )
     ]) {
       try {
@@ -1088,11 +1155,18 @@ def  buildScriptForCLIRelease = {
         stage('Build & Push Artifacts') {
           WithSourceCodeK8s {
             container('pxbuild') {
-              sh 'docker login -u pixielabs -p $DOCKER_TOKEN'
-              sh './ci/cli_build_release.sh'
-              stash name: 'ci_scripts_signing', includes: 'ci/**'
-              stashOnGCS('versions', 'src/utils/artifacts/artifact_db_updater/VERSIONS.json')
-              stashList.add('versions')
+              withCredentials([
+                file(
+                  credentialsId: 'buildbot-private-key-asc',
+                  variable: 'BUILDBOT_GPG_KEY_FILE'
+                )
+              ]) {
+                sh 'docker login -u pixielabs -p $DOCKER_TOKEN'
+                sh './ci/cli_build_release.sh'
+                stash name: 'ci_scripts_signing', includes: 'ci/**'
+                stashOnGCS('versions', 'src/utils/artifacts/artifact_db_updater/VERSIONS.json')
+                stashList.add('versions')
+              }
             }
           }
         }
@@ -1100,19 +1174,38 @@ def  buildScriptForCLIRelease = {
           node('macos') {
             deleteDir()
             unstash 'ci_scripts_signing'
-            withCredentials([string(credentialsId: 'pl_ac_passwd', variable: 'AC_PASSWD'),
-              string(credentialsId: 'jenkins_keychain_pw', variable: 'JENKINSKEY')]) {
+            withCredentials([
+              file(
+                credentialsId: 'buildbot-private-key-asc',
+                variable: 'BUILDBOT_GPG_KEY_FILE'
+              ),
+              string(
+                credentialsId: 'pl_ac_passwd',
+                variable: 'AC_PASSWD'
+              ),
+              string(
+                credentialsId: 'jenkins_keychain_pw',
+                variable: 'JENKINSKEY'
+              )
+            ]) {
               sh './ci/cli_merge_sign.sh'
-              }
+            }
             stash name: 'cli_darwin_signed', includes: 'cli_darwin*'
           }
         }
         stage('Upload Signed Binary') {
           node('macos') {
-            WithSourceCodeFatalError {
-              dockerStep('', devDockerImageExtrasWithTag) {
-                unstash 'cli_darwin_signed'
-                sh './ci/cli_upload_signed.sh'
+            WithSourceCodeK8s {
+              container('pxbuild') {
+                withCredentials([
+                  file(
+                    credentialsId: 'buildbot-private-key-asc',
+                    variable: 'BUILDBOT_GPG_KEY_FILE'
+                  )
+                ]) {
+                  unstash 'cli_darwin_signed'
+                  sh './ci/cli_upload_signed.sh'
+                }
               }
             }
           }
@@ -1143,7 +1236,7 @@ def updatePxlDocs() {
   WithSourceCodeK8s {
     container('pxbuild') {
       def pxlDocsOut = "/tmp/${PXL_DOCS_FILE}"
-      sh "bazel run ${PXL_DOCS_BINARY} ${pxlDocsOut}"
+      sh "bazel run ${PXL_DOCS_BINARY} -- --output_json ${pxlDocsOut}"
       sh "gsutil cp ${pxlDocsOut} ${PXL_DOCS_GCS_PATH}"
     }
   }
@@ -1395,7 +1488,9 @@ def buildScriptForCopybaraPxAPI() {
 }
 
 if (isNightlyTestRegressionRun) {
-  buildScriptForNightlyTestRegression()
+  buildScriptForNightlyTestRegression(regressionBuilders)
+} else if (isNightlyBPFTestRegressionRun) {
+  buildScriptForNightlyTestRegression(BPFRegressionBuilders)
 } else if (isCLIBuildRun) {
   buildScriptForCLIRelease()
 } else if (isVizierBuildRun) {
@@ -1408,7 +1503,7 @@ if (isNightlyTestRegressionRun) {
   buildScriptForCloudProdRelease()
 } else if (isOSSCloudBuildRun) {
   buildScriptForOSSCloudRelease()
-} else if (isCopybaraPublic) {
+} else if (isCopybaraPublic || isCopybaraTags) {
   buildScriptForCopybaraPublic()
 } else if (isCopybaraPxAPI) {
   buildScriptForCopybaraPxAPI()

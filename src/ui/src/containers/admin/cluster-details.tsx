@@ -52,6 +52,7 @@ import {
   GQLContainerStatus as ContainerStatus,
   GQLPodStatus,
 } from 'app/types/schema';
+import { WithChildren } from 'app/utils/react-boilerplate';
 import { dataFromProto } from 'app/utils/result-data-utils';
 
 import {
@@ -75,7 +76,7 @@ const useLinkStyles = makeStyles((theme: Theme) => createStyles({
     color: theme.palette.foreground.grey5,
   },
 }), { name: 'BreadcrumbLink' });
-const StyledBreadcrumbLink: React.FC<{ to: string }> = React.memo(({ children, to }) => {
+const StyledBreadcrumbLink: React.FC<WithChildren<{ to: string }>> = React.memo(({ children, to }) => {
   const classes = useLinkStyles();
   return <Link className={classes.root} to={to}>{children}</Link>;
 });
@@ -99,7 +100,7 @@ const useBreadcrumbsStyles = makeStyles((theme: Theme) => createStyles({
   },
 }), { name: 'ClusterDetailsBreadcrumbs' });
 
-const StyledBreadcrumbs: React.FC = React.memo(({ children }) => {
+const StyledBreadcrumbs: React.FC<WithChildren> = React.memo(({ children }) => {
   const classes = useBreadcrumbsStyles();
   return (
     <MaterialBreadcrumbs classes={classes}>
@@ -304,7 +305,7 @@ const ExpandablePodRow: React.FC<{ podStatus: GroupedPodStatus }> = (({ podStatu
     <React.Fragment key={name}>
       <TableRow key={name}>
         <AdminTooltip title={status}>
-          <StyledLeftTableCell>
+          <StyledLeftTableCell sx={{ width: (t) => t.spacing(3) }}>
             <StatusCell statusGroup={statusGroup} />
           </StyledLeftTableCell>
         </AdminTooltip>
@@ -463,7 +464,14 @@ const PixiePodsTab: React.FC<{
             dataPlanePods?.length > 0
               ? dataPlaneDisplay.map((podStatus) => (
                 <ExpandablePodRow key={podStatus.name} podStatus={podStatus} />
-              )) : <div className={classes.errorMessage}> Cluster has no unhealthy Pixie data plane pods. </div>
+              )) : (
+                <TableRow>
+                  <TableCell sx={{ width: (t) => t.spacing(3) }}/>
+                  <TableCell colSpan={3}>
+                    Cluster has no unhealthy Pixie data plane pods.
+                  </TableCell>
+                </TableRow>
+              )
           }
         </TableBody>
       </Table>
@@ -505,8 +513,7 @@ const ClusterSummaryTable = ({ cluster }: {
   'numInstrumentedNodes' |
   'vizierVersion' |
   'clusterVersion' |
-  'lastHeartbeatMs' |
-  'vizierConfig'
+  'lastHeartbeatMs'
   >
 }) => {
   const classes = useClusterDetailStyles();
@@ -548,10 +555,6 @@ const ClusterSummaryTable = ({ cluster }: {
     {
       key: 'Heartbeat',
       value: convertHeartbeatMS(cluster.lastHeartbeatMs),
-    },
-    {
-      key: 'Data Mode',
-      value: cluster.vizierConfig.passthroughEnabled ? 'Passthrough' : 'Direct',
     },
   ];
 
@@ -643,7 +646,6 @@ const ClusterDetailsTabs: React.FC<{ clusterName: string }> = ({ clusterName }) 
     'vizierVersion' |
     'prettyClusterName' |
     'clusterUID' |
-    'vizierConfig' |
     'status' |
     'statusMessage' |
     'controlPlanePodStatuses' |
@@ -663,9 +665,6 @@ const ClusterDetailsTabs: React.FC<{ clusterName: string }> = ({ clusterName }) 
           statusMessage
           clusterVersion
           vizierVersion
-          vizierConfig {
-            passthroughEnabled
-          }
           lastHeartbeatMs
           numNodes
           numInstrumentedNodes
@@ -720,7 +719,6 @@ const ClusterDetailsTabs: React.FC<{ clusterName: string }> = ({ clusterName }) 
     selectedClusterName: cluster?.clusterName,
     selectedClusterPrettyName: cluster?.prettyClusterName,
     selectedClusterUID: cluster?.clusterUID,
-    selectedClusterVizierConfig: cluster?.vizierConfig,
     selectedClusterStatus: cluster?.status,
     selectedClusterStatusMessage: cluster?.statusMessage,
     setClusterByName: () => {},

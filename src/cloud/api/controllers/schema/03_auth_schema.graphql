@@ -7,7 +7,6 @@ extend type Query {
   cluster(id: ID!): ClusterInfo!
   clusterByName(name: String!): ClusterInfo!
   clusters: [ClusterInfo!]!
-  clusterConnection(id: ID!): ClusterConnectionInfo!
   cliArtifact(artifactType: ArtifactType!): CLIArtifact!
   autocomplete(input: String, cursorPos: Int, action: AutocompleteActionType, clusterUID: String): AutocompleteResult!
   autocompleteField(input: String, fieldType: AutocompleteEntityKind,
@@ -39,7 +38,6 @@ extend type Query {
 
 extend type Mutation {
   CreateCluster: ClusterInfo @deprecated(reason: "Clusters are now created via px deploy")
-  UpdateVizierConfig(clusterID: ID!, vizierConfig: EditableVizierConfig!): ClusterInfo!
   CreateDeploymentKey: DeploymentKey!
   DeleteDeploymentKey(id: ID!): Boolean!
   CreateAPIKey: APIKey!
@@ -238,15 +236,10 @@ enum ClusterStatus {
   CS_DEGRADED
 }
 
-type VizierConfig {
-  passthroughEnabled: Boolean!
-}
-
 type ClusterInfo {
   id: ID!
   status: ClusterStatus!
   lastHeartbeatMs: Float!
-  vizierConfig: VizierConfig!
   vizierVersion: String!
   clusterVersion: String!
   clusterName: String!
@@ -259,11 +252,6 @@ type ClusterInfo {
   statusMessage: String!
   previousStatus: ClusterStatus
   previousStatusTimeMs: Float
-}
-
-type ClusterConnectionInfo {
-  ipAddress: String!
-  token: String!
 }
 
 type UserInvite {
@@ -313,10 +301,6 @@ type CLIArtifact {
   sha256: String!
 }
 
-input EditableVizierConfig {
-  passthroughEnabled: Boolean
-}
-
 input EditableUserPermissions {
   isApproved: Boolean
 }
@@ -352,6 +336,7 @@ type PluginInfo {
   configs: [PluginConfigSchema!]!
   allowCustomExportURL: Boolean!
   allowInsecureTLS: Boolean!
+  defaultExportURL: String!
 }
 
 type PluginConfigSchema {

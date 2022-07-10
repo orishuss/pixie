@@ -81,7 +81,9 @@ pl_cc_test(
 
 pl_cc_test(
     name = "record_builder_test",
+    size = "large",
     srcs = ["record_builder_test.cc"],
+    tags = ["cpu:4"],
     deps = [
         ":cc_library",
         "//src/stirling/testing:cc_library",
@@ -135,8 +137,9 @@ pl_cc_test(
     name = "stirling_test",
     size = "medium",
     srcs = ["stirling_test.cc"],
-    # This test is flaky with ASAN due to an ASAN bug related to reading /proc/<pid>/stat
+    # This test is flaky on ASAN due to an ASAN bug related to reading /proc/<pid>/stat.
     # See //src/common/system:proc_parser_bug_test for a reproducable demonstration of the bug,
     # and for detailed comments of why it happens.
+    tags = ["no_asan"],
     deps = ["//src/stirling:cc_library"],
 )

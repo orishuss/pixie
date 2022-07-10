@@ -33,6 +33,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
 	"px.dev/pixie/src/api/proto/vizierpb"
@@ -110,7 +111,7 @@ func createTestState(t *testing.T) (*testState, func(t *testing.T)) {
 	eg.Go(func() error { return s.Serve(lis) })
 
 	ctx := context.Background()
-	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(createDialer(lis)), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(createDialer(lis)), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		natsCleanup()
 		t.Fatalf("Failed to dial bufnet: %v", err)
@@ -137,7 +138,7 @@ func createTestState(t *testing.T) (*testState, func(t *testing.T)) {
 }
 
 func createDialer(lis *bufconn.Listener) func(ctx context.Context, url string) (net.Conn, error) {
-	return func(ctx context.Context, url string) (conn net.Conn, e error) {
+	return func(ctx context.Context, url string) (net.Conn, error) {
 		return lis.Dial()
 	}
 }

@@ -75,9 +75,6 @@ constexpr std::string_view kHTTPRespMsg2 =
     "Content-Length: 0\r\n"
     "\r\n";
 
-// This test requires docker container with --pid=host so that the container's PID and the
-// host machine are identical.
-
 // TODO(yzhao): Apply this pattern to other syscall pairs. An issue is that other syscalls do not
 // use scatter buffer. One approach would be to concatenate inner vector to a single string, and
 // then feed to the syscall. Another caution is that value-parameterized tests actually discourage
@@ -96,7 +93,8 @@ struct SocketTraceBPFTestParams {
   uint64_t trace_role;
 };
 
-class SocketTraceBPFTest : public testing::SocketTraceBPFTest</* TClientSideTracing */ true> {
+class SocketTraceBPFTest
+    : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ true> {
  protected:
   StatusOr<const ConnTracker*> GetConnTracker(int pid, int fd) {
     PL_ASSIGN_OR_RETURN(const ConnTracker* tracker, source_->GetConnTracker(pid, fd));
@@ -599,7 +597,7 @@ TEST_F(SocketTraceBPFTest, SendFile) {
   EXPECT_EQ(client_body, kHTTPRespMsgContent);
 }
 
-using NullRemoteAddrTest = testing::SocketTraceBPFTest</* TClientSideTracing */ false>;
+using NullRemoteAddrTest = testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false>;
 
 // Tests that accept4() with a NULL sock_addr result argument.
 TEST_F(NullRemoteAddrTest, Accept4WithNullRemoteAddr) {
@@ -882,7 +880,7 @@ TEST_F(UDPSocketTraceBPFTest, NonBlockingRecv) {
 }
 
 class SocketTraceServerSideBPFTest
-    : public testing::SocketTraceBPFTest</* TClientSideTracing */ false> {};
+    : public testing::SocketTraceBPFTestFixture</* TClientSideTracing */ false> {};
 
 // Tests stats for a disabled ConnTracker.
 // Now that ConnStats is tracked independently, these stats are expected to stop

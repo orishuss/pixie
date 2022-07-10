@@ -27,6 +27,7 @@ import { createStyles, makeStyles } from '@mui/styles';
 
 import { PixieAPIClient, PixieAPIContext } from 'app/api';
 import { ClusterContext } from 'app/common/cluster-context';
+import { isPixieEmbedded } from 'app/common/embed-context';
 import { EditIcon, Footer, scrollbarStyles } from 'app/components';
 import { Spinner } from 'app/components/spinner/spinner';
 import { ClusterInstructions } from 'app/containers/App/deploy-instructions';
@@ -50,6 +51,7 @@ import { LayoutContext, LayoutContextProvider } from 'app/context/layout-context
 import { ResultsContext, ResultsContextProvider } from 'app/context/results-context';
 import { ScriptContext, ScriptContextProvider } from 'app/context/script-context';
 import { GQLClusterStatus } from 'app/types/schema';
+import { stableSerializeArgs } from 'app/utils/args-utils';
 import { buildClass } from 'app/utils/build-class';
 import { showIntercomTrigger, triggerID } from 'app/utils/intercom';
 import { containsMutation } from 'app/utils/pxl';
@@ -282,11 +284,8 @@ const Nav: React.FC<{
   setWidgetsMoveable: React.Dispatch<React.SetStateAction<boolean>>,
 }> = React.memo(({ widgetsMoveable, setWidgetsMoveable }) => {
   const classes = useStyles();
-  const {
-    embedState: { isEmbedded },
-  } = React.useContext(LiveRouteContext);
 
-  if (isEmbedded) {
+  if (isPixieEmbedded()) {
     return <></>;
   }
 
@@ -311,15 +310,13 @@ Nav.displayName = 'Nav';
 
 const BreadcrumbsWithOptionalRun = React.memo(() => {
   const classes = useStyles();
-  const {
-    embedState: { isEmbedded, widget },
-  } = React.useContext(LiveRouteContext);
+  const { embedState: { widget } } = React.useContext(LiveRouteContext);
 
   if (widget) {
     return <></>;
   }
 
-  if (!isEmbedded) {
+  if (!isPixieEmbedded()) {
     return <LiveViewBreadcrumbs />;
   }
 
@@ -353,9 +350,8 @@ const LiveView = React.memo(() => {
   const { saveEditor } = React.useContext(EditorContext);
   const { isMobile, setEditorPanelOpen, setDataDrawerOpen } = React.useContext(LayoutContext);
   const [widgetsMoveable, setWidgetsMoveable] = React.useState(false);
-  const {
-    embedState: { isEmbedded, widget },
-  } = React.useContext(LiveRouteContext);
+  const { embedState: { widget } } = React.useContext(LiveRouteContext);
+  const isEmbedded = isPixieEmbedded();
 
   const hotkeyHandlers = React.useMemo(() => ({
     'toggle-editor': () => setEditorPanelOpen((editable) => !editable),
@@ -420,6 +416,14 @@ const LiveView = React.memo(() => {
     };
   }, [setWidgetsMoveable]);
 
+  const scroller = React.useRef<HTMLDivElement>(null);
+  const serializedArgs = stableSerializeArgs(args);
+  const scrollId = !(script?.id) ? null : `${script.id}-${serializedArgs}`;
+  React.useEffect(() => {
+    // Scroll up when, from the user's perspective, the script changes. Re-running it counts.
+    if (scrollId) scroller.current?.scrollTo({ top: 0 });
+  }, [scrollId]);
+
   if (!selectedClusterName || !args) return null;
 
   const willRun = script && (!containsMutation(script?.code) || manual);
@@ -434,7 +438,7 @@ const LiveView = React.memo(() => {
           setWidgetsMoveable={setWidgetsMoveable}
         />
         <EditorSplitPanel>
-          <div className={classes.main}>
+          <div className={classes.main} ref={scroller}>
             <div className={buildClass(
               classes.mainContent,
               isEmbedded && classes.embeddedMain,

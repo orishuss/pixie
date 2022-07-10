@@ -32,10 +32,10 @@
 
 constexpr std::string_view kClientPath =
     "src/stirling/source_connectors/socket_tracer/protocols/http2/testing/go_grpc_client/"
-    "golang_1_16_grpc_client";
+    "golang_1_16_grpc_client_/golang_1_16_grpc_client";
 constexpr std::string_view kServerPath =
     "src/stirling/source_connectors/socket_tracer/protocols/http2/testing/go_grpc_server/"
-    "golang_1_16_grpc_server";
+    "golang_1_16_grpc_server_/golang_1_16_grpc_server";
 
 namespace px {
 namespace stirling {
@@ -56,8 +56,8 @@ using LogicalProgram = ::px::stirling::dynamic_tracing::ir::logical::TracepointD
 class GoHTTPDynamicTraceTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    client_path_ = px::testing::BazelBinTestFilePath(kClientPath).string();
-    server_path_ = px::testing::BazelBinTestFilePath(kServerPath).string();
+    client_path_ = px::testing::BazelRunfilePath(kClientPath).string();
+    server_path_ = px::testing::BazelRunfilePath(kServerPath).string();
 
     ASSERT_TRUE(fs::Exists(server_path_));
     ASSERT_TRUE(fs::Exists(client_path_));

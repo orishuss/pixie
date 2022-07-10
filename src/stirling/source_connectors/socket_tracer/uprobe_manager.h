@@ -26,6 +26,7 @@
 
 #include <absl/synchronization/mutex.h>
 
+#include "src/common/system/proc_parser.h"
 #include "src/stirling/bpf_tools/bcc_wrapper.h"
 #include "src/stirling/obj_tools/dwarf_reader.h"
 #include "src/stirling/obj_tools/elf_reader.h"
@@ -33,7 +34,9 @@
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/socket_trace.hpp"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/symaddrs.h"
 
+#include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 #include "src/stirling/utils/detect_application.h"
+#include "src/stirling/utils/monitor.h"
 #include "src/stirling/utils/proc_path_tools.h"
 #include "src/stirling/utils/proc_tracker.h"
 
@@ -42,6 +45,9 @@ DECLARE_double(stirling_rescan_exp_backoff_factor);
 
 namespace px {
 namespace stirling {
+
+using px::stirling::RawFptrManager;
+using system::ProcParser;
 
 /**
  * Describes a UProbe template.
@@ -286,6 +292,8 @@ class UProbeManager {
           },
       });
 
+  // In nodejs 15.0.0, openssl-related code is moved from ::node namespace to ::node::crypto
+  // namespace. So the symbol for attaching has been changed from the above version.
   inline static const std::array<UProbeTmpl, 6> kNodeOpenSSLUProbeTmplsV15_0_0 =
       MakeArray<UProbeTmpl>({
           UProbeTmpl{
@@ -462,6 +470,12 @@ class UProbeManager {
   StatusOr<int> AttachNodeJsOpenSSLUprobes(uint32_t pid);
 
   /**
+   * Calls BCCWrapper.AttachUProbe() with a probe template and log any errors to the probe status
+   * table.
+   */
+  Status LogAndAttachUProbe(const bpf_tools::UProbeSpec& spec);
+
+  /**
    * Helper function that calls BCCWrapper.AttachUprobe() from a probe template.
    * Among other things, it finds all symbol matches as specified in the template,
    * and attaches a probe per matching symbol.
@@ -478,7 +492,8 @@ class UProbeManager {
   // Returns set of PIDs that have had mmap called on them since the last call.
   absl::flat_hash_set<md::UPID> PIDsToRescanForUProbes();
 
-  Status UpdateOpenSSLSymAddrs(std::filesystem::path container_lib, uint32_t pid);
+  Status UpdateOpenSSLSymAddrs(RawFptrManager* fptrManager, std::filesystem::path container_lib,
+                               uint32_t pid);
   Status UpdateGoCommonSymAddrs(obj_tools::ElfReader* elf_reader,
                                 obj_tools::DwarfReader* dwarf_reader,
                                 const std::vector<int32_t>& pids);
@@ -543,6 +558,8 @@ class UProbeManager {
       node_tlswrap_symaddrs_map_;
   std::unique_ptr<UserSpaceManagedBPFMap<uint32_t, int, ebpf::BPFMapInMapTable<uint32_t>>>
       go_goid_map_;
+
+  StirlingMonitor& monitor_ = *StirlingMonitor::GetInstance();
 };
 
 }  // namespace stirling

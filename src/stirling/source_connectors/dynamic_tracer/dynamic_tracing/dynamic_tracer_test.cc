@@ -26,7 +26,8 @@
 #include "src/common/testing/testing.h"
 #include "src/stirling/testing/common.h"
 
-constexpr std::string_view kBinaryPath = "src/stirling/obj_tools/testdata/go/test_go_1_16_binary";
+constexpr std::string_view kBinaryPath =
+    "src/stirling/obj_tools/testdata/go/test_go_1_16_binary_/test_go_1_16_binary";
 
 namespace px {
 namespace stirling {
@@ -45,7 +46,7 @@ using ::testing::SizeIs;
 
 constexpr char kServerPath[] =
     "src/stirling/source_connectors/socket_tracer/protocols/http2/testing/go_grpc_server/"
-    "golang_1_16_grpc_server";
+    "golang_1_16_grpc_server_/golang_1_16_grpc_server";
 
 constexpr char kPod0UpdateTxt[] = R"(
   uid: "pod0"
@@ -86,7 +87,7 @@ constexpr char kContainer1UpdateTxt[] = R"(
 class ResolveTargetObjPathTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    auto server_path = px::testing::BazelBinTestFilePath(kServerPath).string();
+    auto server_path = px::testing::BazelRunfilePath(kServerPath).string();
     ASSERT_OK(s_.Start({server_path, "--port=0"}));
 
     md::K8sMetadataState::PodUpdate pod0_update;
@@ -378,8 +379,8 @@ const std::vector<std::string> kExpectedBCC = {
 };
 
 TEST(DynamicTracerTest, Compile) {
-  std::string input_program_str = absl::Substitute(
-      kLogicalProgramSpec, px::testing::BazelBinTestFilePath(kBinaryPath).string());
+  std::string input_program_str =
+      absl::Substitute(kLogicalProgramSpec, px::testing::BazelRunfilePath(kBinaryPath).string());
   ir::logical::TracepointDeployment input_program;
   ASSERT_TRUE(TextFormat::ParseFromString(input_program_str, &input_program));
 

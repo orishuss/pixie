@@ -160,7 +160,7 @@ enum class PodConditionType : uint8_t {
   kUnschedulable,
   kContainersReady
 };
-enum class PodConditionStatus : uint8_t { kUnknown = 0, kTrue, kFalse };
+enum class ConditionStatus : uint8_t { kUnknown = 0, kTrue, kFalse };
 
 inline PodConditionType ConvertToPodConditionType(
     px::shared::k8s::metadatapb::PodConditionType pb_enum) {
@@ -181,20 +181,20 @@ inline PodConditionType ConvertToPodConditionType(
   }
 }
 
-inline PodConditionStatus ConvertToPodConditionStatus(
-    px::shared::k8s::metadatapb::PodConditionStatus pb_enum) {
-  using status_pb = px::shared::k8s::metadatapb::PodConditionStatus;
+inline ConditionStatus ConvertToConditionStatus(
+    px::shared::k8s::metadatapb::ConditionStatus pb_enum) {
+  using status_pb = px::shared::k8s::metadatapb::ConditionStatus;
   switch (pb_enum) {
-    case status_pb::STATUS_TRUE:
-      return PodConditionStatus::kTrue;
-    case status_pb::STATUS_FALSE:
-      return PodConditionStatus::kFalse;
+    case status_pb::CONDITION_STATUS_TRUE:
+      return ConditionStatus::kTrue;
+    case status_pb::CONDITION_STATUS_FALSE:
+      return ConditionStatus::kFalse;
     default:
-      return PodConditionStatus::kUnknown;
+      return ConditionStatus::kUnknown;
   }
 }
 
-using PodConditions = absl::flat_hash_map<PodConditionType, PodConditionStatus>;
+using PodConditions = absl::flat_hash_map<PodConditionType, ConditionStatus>;
 
 inline PodConditions ConvertToPodConditions(
     const google::protobuf::RepeatedPtrField<px::shared::k8s::metadatapb::PodCondition>&
@@ -202,7 +202,7 @@ inline PodConditions ConvertToPodConditions(
   PodConditions conditions;
   for (const auto& condition : pod_conditions) {
     conditions.try_emplace(ConvertToPodConditionType(condition.type()),
-                           ConvertToPodConditionStatus(condition.status()));
+                           ConvertToConditionStatus(condition.status()));
   }
   return conditions;
 }
@@ -292,9 +292,12 @@ class PodInfo : public K8sMetadataObject {
   void set_node_name(std::string_view node_name) { node_name_ = node_name; }
   void set_hostname(std::string_view hostname) { hostname_ = hostname; }
   void set_pod_ip(std::string_view pod_ip) { pod_ip_ = pod_ip; }
+  void set_pod_labels(std::string labels) { labels_ = labels; }
+
   const std::string& node_name() const { return node_name_; }
   const std::string& hostname() const { return hostname_; }
   const std::string& pod_ip() const { return pod_ip_; }
+  const std::string& labels() const { return labels_; }
 
   const absl::flat_hash_set<std::string>& containers() const { return containers_; }
   const absl::flat_hash_set<std::string>& services() const { return services_; }
@@ -334,6 +337,7 @@ class PodInfo : public K8sMetadataObject {
   std::string node_name_;
   std::string hostname_;
   std::string pod_ip_;
+  std::string labels_;
 };
 
 struct UPIDStartTSCompare {

@@ -16,29 +16,25 @@
 
 REPOSITORY_LOCATIONS = dict(
     bazel_gazelle = dict(
-        sha256 = "de69a09dc70417580aabf20a28619bb3ef60d038470c7cf8442fafcf627c21cb",
+        sha256 = "5982e5463f171da99e3bdaeff8c0f48283a7a5f396ec5282910b9e8a49c0dd7e",
         urls = [
-            "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.24.0/bazel-gazelle-v0.24.0.tar.gz",
-            "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.24.0/bazel-gazelle-v0.24.0.tar.gz",
+            "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.25.0/bazel-gazelle-v0.25.0.tar.gz",
+            "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.25.0/bazel-gazelle-v0.25.0.tar.gz",
         ],
     ),
     io_bazel_rules_go = dict(
-        # Upgrading this dep causes gcc build to break.
-        # This seems to be a misconfiguration on our side combined with the following change.
-        # https://github.com/bazelbuild/rules_go/commit/1f156d822e5e05d8fb0f1a4f9be2653166487eab
-        # TODO(zasgar): Fix our config and then upgrade rules_go.
-        sha256 = "8e968b5fcea1d2d64071872b12737bbb5514524ee5f0a4f54f5920266c261acb",
+        sha256 = "ab21448cef298740765f33a7f5acee0607203e4ea321219f2a4c85a6e0fb0a27",
         urls = [
-            "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.28.0/rules_go-v0.28.0.zip",
-            "https://github.com/bazelbuild/rules_go/releases/download/v0.28.0/rules_go-v0.28.0.zip",
+            "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.32.0/rules_go-v0.32.0.zip",
+            "https://github.com/bazelbuild/rules_go/releases/download/v0.32.0/rules_go-v0.32.0.zip",
         ],
     ),
     io_bazel_rules_scala = dict(
-        sha256 = "0485168f15607ca3eab999ed531bd25596cf4a43b295552c80032ba0e056cd1a",
+        sha256 = "6e9191363357d30b144e7306fec74deea2c7f1de63f3ed32028838116c239e8a",
         urls = [
-            "https://github.com/bazelbuild/rules_scala/archive/9d0d4f99ff79d5d454180a1c799ff1af1d380ed2.tar.gz",
+            "https://github.com/bazelbuild/rules_scala/archive/4ba3780fcba8d26980daff4639abc6f18517308b.tar.gz",
         ],
-        strip_prefix = "rules_scala-9d0d4f99ff79d5d454180a1c799ff1af1d380ed2",
+        strip_prefix = "rules_scala-4ba3780fcba8d26980daff4639abc6f18517308b",
     ),
     io_bazel_rules_k8s = dict(
         sha256 = "a08850199d6900328ef899906717fb1dfcc6cde62701c63725748b2e6ca1d5d9",
@@ -78,9 +74,9 @@ REPOSITORY_LOCATIONS = dict(
         urls = ["https://github.com/bazelbuild/bazel-skylib/archive/refs/tags/1.0.2.tar.gz"],
     ),
     io_bazel_rules_docker = dict(
-        sha256 = "59536e6ae64359b716ba9c46c39183403b01eabfbd57578e84398b4829ca499a",
-        strip_prefix = "rules_docker-0.22.0",
-        urls = ["https://github.com/bazelbuild/rules_docker/archive/refs/tags/v0.22.0.tar.gz"],
+        sha256 = "27d53c1d646fc9537a70427ad7b034734d08a9c38924cc6357cc973fed300820",
+        strip_prefix = "rules_docker-0.24.0",
+        urls = ["https://github.com/bazelbuild/rules_docker/archive/refs/tags/v0.24.0.tar.gz"],
     ),
     com_google_googletest = dict(
         sha256 = "b4870bf121ff7795ba20d20bcdd8627b8e088f2d1dab299a031c1034eddc93d5",
@@ -88,9 +84,9 @@ REPOSITORY_LOCATIONS = dict(
         urls = ["https://github.com/google/googletest/archive/release-1.11.0.tar.gz"],
     ),
     com_github_grpc_grpc = dict(
-        sha256 = "27dd2fc5c9809ddcde8eb6fa1fa278a3486566dfc28335fca13eb8df8bd3b958",
-        strip_prefix = "grpc-1.35.0",
-        urls = ["https://github.com/grpc/grpc/archive/refs/tags/v1.35.0.tar.gz"],
+        sha256 = "d6cbf22cb5007af71b61c6be316a79397469c58c82a942552a62e708bce60964",
+        strip_prefix = "grpc-1.46.3",
+        urls = ["https://github.com/grpc/grpc/archive/refs/tags/v1.46.3.tar.gz"],
     ),
     com_google_boringssl = dict(
         sha256 = "781fa39693ec2984c71213cd633e9f6589eaaed75e3a9ac413237edec96fd3b9",
@@ -131,19 +127,22 @@ REPOSITORY_LOCATIONS = dict(
         urls = ["https://github.com/google/double-conversion/archive/refs/tags/v3.2.0.tar.gz"],
     ),
     com_google_protobuf = dict(
-        sha256 = "bc3dbf1f09dba1b2eb3f2f70352ee97b9049066c9040ce0c9b67fb3294e91e4b",
-        strip_prefix = "protobuf-3.15.5",
-        urls = ["https://github.com/protocolbuffers/protobuf/archive/refs/tags/v3.15.5.tar.gz"],
+        sha256 = "bab1685f92cc4ea5b6420026eef6c7973ae96fc21f4f1a3ee626dc6ca6d77c12",
+        strip_prefix = "protobuf-22d0e265de7d2b3d2e9a00d071313502e7d4cccf",
+        urls = [
+            "https://storage.googleapis.com/grpc-bazel-mirror/github.com/protocolbuffers/protobuf/archive/22d0e265de7d2b3d2e9a00d071313502e7d4cccf.tar.gz",
+            "https://github.com/protocolbuffers/protobuf/archive/22d0e265de7d2b3d2e9a00d071313502e7d4cccf.tar.gz",
+        ],
     ),
     com_intel_tbb = dict(
-        sha256 = "ebc4f6aa47972daed1f7bf71d100ae5bf6931c2e3144cf299c8cc7d041dca2f3",
-        strip_prefix = "oneTBB-2020.3",
-        urls = ["https://github.com/oneapi-src/oneTBB/archive/refs/tags/v2020.3.tar.gz"],
+        sha256 = "8bc2bc624fd382f5262adb62ff25cb218a6ec1a20330dc6e90f0c166f65b3b81",
+        strip_prefix = "oneTBB-2021.6.0-rc1",
+        urls = ["https://github.com/oneapi-src/oneTBB/archive/refs/tags/v2021.6.0-rc1.tar.gz"],
     ),
     com_github_libarchive_libarchive = dict(
-        sha256 = "b60d58d12632ecf1e8fad7316dc82c6b9738a35625746b47ecdcaf4aed176176",
-        strip_prefix = "libarchive-3.4.2",
-        urls = ["https://github.com/libarchive/libarchive/releases/download/v3.4.2/libarchive-3.4.2.tar.gz"],
+        sha256 = "c676146577d989189940f1959d9e3980d28513d74eedfbc6b7f15ea45fe54ee2",
+        strip_prefix = "libarchive-3.6.1",
+        urls = ["https://github.com/libarchive/libarchive/releases/download/v3.6.1/libarchive-3.6.1.tar.gz"],
     ),
     com_google_farmhash = dict(
         sha256 = "09b5da9eaa7c7f4f073053c1c6c398e320ca917e74e8f366fd84679111e87216",
@@ -161,9 +160,9 @@ REPOSITORY_LOCATIONS = dict(
         urls = ["https://github.com/AriaFallah/csv-parser/archive/e3c1207f4de50603a4946dc5daa0633ce31a9257.tar.gz"],
     ),
     rules_foreign_cc = dict(
-        sha256 = "1df78c7d7eed2dc21b8b325a2853c31933a81e7b780f9a59a5d078be9008b13a",
-        strip_prefix = "rules_foreign_cc-0.7.0",
-        urls = ["https://github.com/bazelbuild/rules_foreign_cc/archive/refs/tags/0.7.0.tar.gz"],
+        sha256 = "6041f1374ff32ba711564374ad8e007aef77f71561a7ce784123b9b4b88614fc",
+        strip_prefix = "rules_foreign_cc-0.8.0",
+        urls = ["https://github.com/bazelbuild/rules_foreign_cc/archive/refs/tags/0.8.0.tar.gz"],
     ),
     com_github_gperftools_gperftools = dict(
         sha256 = "ea566e528605befb830671e359118c2da718f721c27225cbbc93858c7520fee3",
@@ -174,12 +173,6 @@ REPOSITORY_LOCATIONS = dict(
         sha256 = "cb47971984d77dc81ed5684d51d668a7bc7804d3b7814a3072c2187dfa37a013",
         strip_prefix = "picohttpparser-1d2b8a184e7ebe6651c30dcede37ba1d89691351",
         urls = ["https://github.com/h2o/picohttpparser/archive/1d2b8a184e7ebe6651c30dcede37ba1d89691351.tar.gz"],
-    ),
-    distroless = dict(
-        sha256 = "54273175a54eedc558b8188ca810b184b0784815d3af17cc5fd9c296be4c150e",
-        strip_prefix = "distroless-18b2d2c5ebfa58fe3e0e4ee3ffe0e2651ec0f7f6",
-        urls = ["https://github.com/GoogleContainerTools/distroless/" +
-                "archive/18b2d2c5ebfa58fe3e0e4ee3ffe0e2651ec0f7f6.tar.gz"],
     ),
     com_github_nats_io_natsc = dict(
         sha256 = "c2b5a5e62dfbdcb110f00960c413ab6e8ef09dd71863c15c9f81aa598dcd339d",
@@ -216,14 +209,14 @@ REPOSITORY_LOCATIONS = dict(
         urls = ["https://github.com/nlohmann/json/releases/download/v3.7.3/include.zip"],
     ),
     org_tensorflow = dict(
-        sha256 = "f681331f8fc0800883761c7709d13cda11942d4ad5ff9f44ad855e9dc78387e0",
-        strip_prefix = "tensorflow-2.4.1",
-        urls = ["https://github.com/tensorflow/tensorflow/archive/refs/tags/v2.4.1.tar.gz"],
+        sha256 = "6eaf86ead73e23988fe192da1db68f4d3828bcdd0f3a9dc195935e339c95dbdc",
+        strip_prefix = "tensorflow-2.9.1",
+        urls = ["https://github.com/tensorflow/tensorflow/archive/refs/tags/v2.9.1.tar.gz"],
     ),
     io_bazel_rules_closure = dict(
-        sha256 = "9498e57368efb82b985db1ed426a767cbf1ba0398fd7aed632fc3908654e1b1e",
-        strip_prefix = "rules_closure-0.12.0",
-        urls = ["https://github.com/bazelbuild/rules_closure/archive/refs/tags/0.12.0.tar.gz"],
+        sha256 = "5b00383d08dd71f28503736db0500b6fb4dda47489ff5fc6bed42557c07c6ba9",
+        strip_prefix = "rules_closure-308b05b2419edb5c8ee0471b67a40403df940149",
+        urls = ["https://github.com/bazelbuild/rules_closure/archive/308b05b2419edb5c8ee0471b67a40403df940149.tar.gz"],
     ),
     # August 19, 2020.
     com_github_google_sentencepiece = dict(
@@ -232,8 +225,9 @@ REPOSITORY_LOCATIONS = dict(
         urls = ["https://github.com/google/sentencepiece/archive/refs/tags/v0.1.95.tar.gz"],
     ),
     rules_python = dict(
-        urls = ["https://github.com/bazelbuild/rules_python/releases/download/0.2.0/rules_python-0.2.0.tar.gz"],
-        sha256 = "778197e26c5fbeb07ac2a2c5ae405b30f6cb7ad1f5510ea6fdac03bded96cc6f",
+        sha256 = "cdf6b84084aad8f10bf20b46b77cb48d83c319ebe6458a18e9d2cebf57807cdd",
+        strip_prefix = "rules_python-0.8.1",
+        urls = ["https://github.com/bazelbuild/rules_python/archive/refs/tags/0.8.1.tar.gz"],
     ),
     com_github_cmcqueen_aes_min = dict(
         sha256 = "dd82d23976695d857924780c262952cdb12ddbb56e6bdaf5a2270dccc851d279",
@@ -270,7 +264,7 @@ REPOSITORY_LOCATIONS = dict(
         strip_prefix = "pgcodekeeper-5.11.3",
         sha256 = "b80d88f447566733f887a2c21ad6072751297459e79fa5acfc99e5db3a9418a1",
     ),
-    com_github_google_re2 = dict(
+    com_googlesource_code_re2 = dict(
         urls = ["https://github.com/google/re2/archive/refs/tags/2021-08-01.tar.gz"],
         strip_prefix = "re2-2021-08-01",
         sha256 = "cd8c950b528f413e02c12970dce62a7b6f37733d7f68807e73a2d9bc9db79bc8",
@@ -305,6 +299,15 @@ REPOSITORY_LOCATIONS = dict(
         sha256 = "10e6f90d359c1087c45f907f95e527a8aca84422251081d1533231e031a084ff",
         strip_prefix = "uriparser-0.9.6",
     ),
+    # To workaround issues in TF 2.9.1 bazel workspace setup, we directly load this library that tensorflow should have loaded itself.
+    com_google_googleapis = dict(
+        sha256 = "5bb6b0253ccf64b53d6c7249625a7e3f6c3bc6402abd52d3778bfa48258703a0",
+        strip_prefix = "googleapis-2f9af297c84c55c8b871ba4495e01ade42476c92",
+        urls = [
+            "https://storage.googleapis.com/grpc-bazel-mirror/github.com/googleapis/googleapis/archive/2f9af297c84c55c8b871ba4495e01ade42476c92.tar.gz",
+            "https://github.com/googleapis/googleapis/archive/2f9af297c84c55c8b871ba4495e01ade42476c92.tar.gz",
+        ],
+    ),
 )
 
 # To modify one of the forked repos below:
@@ -318,13 +321,13 @@ REPOSITORY_LOCATIONS = dict(
 GIT_REPOSITORY_LOCATIONS = dict(
     com_github_iovisor_bcc = dict(
         remote = "https://github.com/pixie-io/bcc.git",
-        commit = "f55c4deb76aaf483a50fcf7dff30e9076ef42b99",
-        shallow_since = "1643059595 -0800",
+        commit = "665ef026d27e0e066d0cd1816ebd1ab63ce8c1ef",
+        shallow_since = "1656825375 -0700",
     ),
     com_github_iovisor_bpftrace = dict(
         remote = "https://github.com/pixie-io/bpftrace.git",
-        commit = "4dba68c62465ac35ff52c47eec376d1bfc035368",
-        shallow_since = "1637018996 -0800",
+        commit = "9dd8045d2b7a6971634b877686298135e2004e86",
+        shallow_since = "1655490642 -0700",
     ),
     com_github_apangin_jattach = dict(
         remote = "https://github.com/pixie-io/jattach.git",

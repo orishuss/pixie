@@ -24,7 +24,7 @@ import {
   Switch, Route, Redirect, useRouteMatch, useLocation,
 } from 'react-router-dom';
 
-import { EmbedContext } from 'app/common/embed-context';
+import { EmbedContext, isPixieEmbedded } from 'app/common/embed-context';
 import { selectClusterName } from 'app/containers/App/cluster-info';
 import { RouteNotFound } from 'app/containers/App/route-not-found';
 import { SCRATCH_SCRIPT, ScriptsContext } from 'app/containers/App/scripts-context';
@@ -32,6 +32,7 @@ import { EmbedState } from 'app/containers/live-widgets/utils/live-view-params';
 import { GQLClusterInfo } from 'app/types/schema';
 import { argsForVis, Arguments } from 'app/utils/args-utils';
 import plHistory from 'app/utils/pl-history';
+import { WithChildren } from 'app/utils/react-boilerplate';
 
 export interface LiveRouteContextProps {
   clusterName: string;
@@ -89,7 +90,7 @@ export function push(
   args: Arguments,
   embedState: EmbedState,
 ): void {
-  const pathname = `${embedState.isEmbedded ? '/embed' : ''}/live/clusters/${encodeURIComponent(clusterName)}`;
+  const pathname = `/live/clusters/${encodeURIComponent(clusterName)}`;
   const queryParams: Arguments = {
     ...args,
     ...{ script: scriptId },
@@ -103,7 +104,7 @@ export function push(
   }
 }
 
-const LiveRoute: React.FC<LiveRouteContextProps> = React.memo(({
+const LiveRoute: React.FC<WithChildren<LiveRouteContextProps>> = React.memo(({
   args, scriptId, embedState, clusterName, children,
 }) => {
   const { timeArg } = React.useContext(EmbedContext);
@@ -128,7 +129,7 @@ const LiveRoute: React.FC<LiveRouteContextProps> = React.memo(({
 });
 LiveRoute.displayName = 'LiveRoute';
 
-const VanityRouter: React.FC<{ outerPath: string }> = React.memo(({ outerPath, children }) => {
+const VanityRouter: React.FC<WithChildren<{ outerPath: string }>> = React.memo(({ outerPath, children }) => {
   const location = useLocation();
   const { path, params: routeParams } = useRouteMatch();
   const nestedPath = path.substr(outerPath.length);
@@ -154,7 +155,7 @@ const VanityRouter: React.FC<{ outerPath: string }> = React.memo(({ outerPath, c
 
   const { scripts: availableScripts, loading: loadingAvailableScripts } = React.useContext(ScriptsContext);
 
-  const isEmbedded = outerPath.startsWith('/embed');
+  const isEmbedded = isPixieEmbedded();
 
   const {
     script: queryScriptId,
@@ -210,7 +211,7 @@ const VanityRouter: React.FC<{ outerPath: string }> = React.memo(({ outerPath, c
 });
 VanityRouter.displayName = 'VanityRouter';
 
-export const LiveContextRouter = React.memo(({ children }) => {
+export const LiveContextRouter: React.FC<WithChildren> = React.memo(({ children }) => {
   const { path } = useRouteMatch();
   const vanities = React.useMemo(() => [...VANITY_ROUTES.keys()].map((r) => `${path}${r}`), [path]);
 

@@ -22,7 +22,8 @@
 #include "src/common/testing/testing.h"
 #include "src/stirling/source_connectors/dynamic_tracer/dynamic_tracing/autogen.h"
 
-constexpr std::string_view kBinaryPath = "src/stirling/obj_tools/testdata/go/test_go_1_16_binary";
+constexpr std::string_view kBinaryPath =
+    "src/stirling/obj_tools/testdata/go/test_go_1_16_binary_/test_go_1_16_binary";
 
 namespace px {
 namespace stirling {
@@ -170,7 +171,7 @@ struct ProbeGenTestParam {
 
 class ProbeGenTest : public ::testing::TestWithParam<ProbeGenTestParam> {
  protected:
-  ProbeGenTest() : binary_path_(px::testing::BazelBinTestFilePath(kBinaryPath)) {}
+  ProbeGenTest() : binary_path_(px::testing::BazelRunfilePath(kBinaryPath)) {}
 
   void SetUp() {
     ASSERT_OK_AND_ASSIGN(dwarf_reader_, DwarfReader::CreateIndexingAll(binary_path_));

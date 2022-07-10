@@ -21,6 +21,8 @@ package controllers
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -29,6 +31,7 @@ import (
 	"github.com/cenkalti/backoff/v3"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -204,10 +207,12 @@ func (r *VizierReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 // updateVizier updates the vizier instance according to the spec. As of the current moment, we only support updates to the Vizier version.
 // Other updates to the Vizier spec will be ignored.
 func (r *VizierReconciler) updateVizier(ctx context.Context, req ctrl.Request, vz *v1alpha1.Vizier) error {
-	// TODO: We currently only trigger updates on changing Vizier versions. We should add a webhook
-	// to disallow changes to other fields.
-	if vz.Status.Version == vz.Spec.Version {
-		log.Info("Versions matched, nothing to do")
+	checksum, err := getSpecChecksum(vz)
+	if err != nil {
+		return err
+	}
+	if string(checksum) == string(vz.Status.Checksum) {
+		log.Info("Checksums matched, no need to reconcile")
 		return nil
 	}
 
@@ -359,13 +364,9 @@ func (r *VizierReconciler) deployVizier(ctx context.Context, req ctrl.Request, v
 			return err
 		}
 	} else {
-		err = r.deleteDeprecatedCertmanager(ctx, req.Namespace, vz, yamlMap)
+		err = r.upgradeNats(ctx, req.Namespace, vz, yamlMap)
 		if err != nil {
-			log.WithError(err).Warning("Failed to delete deprecated certmanager resources")
-		}
-		err = r.deleteDeprecatedVizierProxy(ctx, req.Namespace, vz, yamlMap)
-		if err != nil {
-			log.WithError(err).Warning("Failed to delete deprecated proxy resources")
+			log.WithError(err).Warning("Failed to upgrade nats")
 		}
 	}
 
@@ -389,6 +390,11 @@ func (r *VizierReconciler) deployVizier(ctx context.Context, req ctrl.Request, v
 	vz.Status.Version = vz.Spec.Version
 	vz = setReconciliationPhase(vz, v1alpha1.ReconciliationPhaseReady)
 
+	checksum, err := getSpecChecksum(vz)
+	if err != nil {
+		return err
+	}
+	vz.Status.Checksum = checksum
 	err = r.Status().Update(ctx, vz)
 	if err != nil {
 		return err
@@ -397,53 +403,63 @@ func (r *VizierReconciler) deployVizier(ctx context.Context, req ctrl.Request, v
 	return nil
 }
 
-func (r *VizierReconciler) deleteDeprecatedCertmanager(ctx context.Context, namespace string, vz *v1alpha1.Vizier, yamlMap map[string]string) error {
-	vzYaml := "vizier_persistent"
-	if vz.Spec.UseEtcdOperator {
-		vzYaml = "vizier_etcd"
-	}
-
-	resources, err := k8s.GetResourcesFromYAML(strings.NewReader(yamlMap[vzYaml]))
+func getSpecChecksum(vz *v1alpha1.Vizier) ([]byte, error) {
+	specStr, err := json.Marshal(vz.Spec)
 	if err != nil {
-		return err
+		log.WithError(err).Info("Failed to marshal spec to JSON")
+		return nil, err
 	}
-	for _, r := range resources {
-		if strings.Contains(r.Object.GetName(), "certmgr") {
-			// Don't delete anything.
-			return nil
-		}
-	}
-
-	_ = r.Clientset.AppsV1().Deployments(namespace).Delete(ctx, "vizier-certmgr", metav1.DeleteOptions{})
-	_ = r.Clientset.CoreV1().Services(namespace).Delete(ctx, "vizier-certmgr-svc", metav1.DeleteOptions{})
-	_ = r.Clientset.CoreV1().ServiceAccounts(namespace).Delete(ctx, "certmgr-service-account", metav1.DeleteOptions{})
-	_ = r.Clientset.RbacV1().ClusterRoles().Delete(ctx, "pl-vizier-certmgr", metav1.DeleteOptions{})
-	_ = r.Clientset.RbacV1().ClusterRoleBindings().Delete(ctx, "pl-vizier-certmgr-cluster-binding", metav1.DeleteOptions{})
-	_ = r.Clientset.RbacV1().RoleBindings(namespace).Delete(ctx, "pl-vizier-crd-certmgr-binding", metav1.DeleteOptions{})
-	return nil
+	h := sha256.New()
+	h.Write([]byte(specStr))
+	return h.Sum(nil), nil
 }
 
-func (r *VizierReconciler) deleteDeprecatedVizierProxy(ctx context.Context, namespace string, vz *v1alpha1.Vizier, yamlMap map[string]string) error {
-	vzYaml := "vizier_persistent"
-	if vz.Spec.UseEtcdOperator {
-		vzYaml = "vizier_etcd"
+func (r *VizierReconciler) upgradeNats(ctx context.Context, namespace string, vz *v1alpha1.Vizier, yamlMap map[string]string) error {
+	log.Info("Upgrading NATS if necessary")
+
+	ss, err := r.Clientset.AppsV1().StatefulSets(namespace).Get(ctx, "pl-nats", metav1.GetOptions{})
+	if err != nil {
+		log.WithError(err).Info("No NATS currently running")
+		return r.deployNATSStatefulset(ctx, namespace, vz, yamlMap)
 	}
 
-	resources, err := k8s.GetResourcesFromYAML(strings.NewReader(yamlMap[vzYaml]))
+	containers := ss.Spec.Template.Spec.Containers
+	if len(containers) == 0 {
+		log.Info("NATS seems to have no containers")
+		return r.deployNATSStatefulset(ctx, namespace, vz, yamlMap)
+	}
+	natsImage := containers[0].Image
+
+	resources, err := k8s.GetResourcesFromYAML(strings.NewReader(yamlMap["nats"]))
 	if err != nil {
 		return err
 	}
+
+	var newSS appsv1.StatefulSet
 	for _, r := range resources {
-		if strings.Contains(r.Object.GetName(), "proxy") {
-			// Don't delete anything.
-			return nil
+		if r.GVK.Kind != "StatefulSet" {
+			continue
 		}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(r.Object.UnstructuredContent(), &newSS)
+		if err != nil {
+			log.WithError(err).Info("Could not decode NATS Statefulset")
+			return err
+		}
+		break
 	}
 
-	_ = r.Clientset.AppsV1().Deployments(namespace).Delete(ctx, "vizier-proxy", metav1.DeleteOptions{})
-	_ = r.Clientset.CoreV1().Services(namespace).Delete(ctx, "vizier-proxy-service", metav1.DeleteOptions{})
-	_ = r.Clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, "proxy-envoy-config", metav1.DeleteOptions{})
-	return nil
+	if len(newSS.Spec.Template.Spec.Containers) == 0 {
+		log.Info("New NATS spec seems to have no containers")
+		return r.deployNATSStatefulset(ctx, namespace, vz, yamlMap)
+	}
+
+	if natsImage == newSS.Spec.Template.Spec.Containers[0].Image {
+		log.Info("NATS up to date. Nothing to do.")
+		return nil
+	}
+
+	log.Info("Will upgrade NATS")
+	return r.deployNATSStatefulset(ctx, namespace, vz, yamlMap)
 }
 
 // TODO(michellenguyen): Add a goroutine
@@ -517,7 +533,7 @@ func (r *VizierReconciler) deployNATSStatefulset(ctx context.Context, namespace 
 			return err
 		}
 	}
-	return retryDeploy(r.Clientset, r.RestConfig, namespace, resources, false)
+	return retryDeploy(r.Clientset, r.RestConfig, namespace, resources, true)
 }
 
 // deployEtcdStatefulset deploys etcd to the given namespace.
@@ -774,13 +790,17 @@ func updatePodSpec(nodeSelector map[string]string, securityCtx *v1alpha1.PodSecu
 	}
 
 	castedNodeSelector := make(map[string]interface{})
+	ns, ok := podSpec["nodeSelector"].(map[string]interface{})
+	if ok {
+		castedNodeSelector = ns
+	}
 	for k, v := range nodeSelector {
 		if _, ok := castedNodeSelector[k]; ok {
 			continue
 		}
 		castedNodeSelector[k] = v
 	}
-	podSpec["nodeSelector"] = nodeSelector
+	podSpec["nodeSelector"] = castedNodeSelector
 
 	// Add securityContext only if enabled.
 	if securityCtx == nil || !securityCtx.Enabled {

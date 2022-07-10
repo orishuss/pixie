@@ -46,10 +46,6 @@ export interface ClusterConfig {
    * This includes the protocol, the host, and optionally the port. For example, `https://pixie.example.com:1234`.
    */
   passthroughClusterAddress: string;
-  /**
-   * If true, passes an HTTP Authorization header as part of each request to gRPC services.
-   */
-  attachCredentials?: boolean;
 }
 
 export abstract class PixieAPIClientAbstract {
@@ -57,13 +53,14 @@ export abstract class PixieAPIClientAbstract {
 
   readonly options: Required<PixieAPIClientOptions>;
 
-  abstract health(cluster: string | ClusterConfig): Observable<Status>;
+  abstract health(cluster: ClusterConfig): Observable<Status>;
 
   abstract executeScript(
-    cluster: string | ClusterConfig,
+    cluster: ClusterConfig,
     script: string,
     opts: ExecuteScriptOptions,
     funcs?: VizierQueryFunc[],
+    scriptName?: string,
   ): Observable<ExecutionStateUpdate>;
 
   abstract isAuthenticated(): Promise<boolean>;
@@ -117,13 +114,11 @@ export class PixieAPIClient extends PixieAPIClientAbstract {
 
   // Note: this doesn't check if the client already exists, and clobbers any existing client.
   private async createVizierClient(cluster: ClusterConfig) {
-    const { token } = await this.gqlClient.getClusterConnection(cluster.id);
     const client = new VizierGRPCClient(
       cluster.passthroughClusterAddress,
       // If in embed mode, we should always use the auth token with bearer auth.
-      this.options.authToken ? this.options.authToken : token,
+      this.options.authToken,
       cluster.id,
-      (this.options.authToken ? false : cluster.attachCredentials ?? false),
     );
 
     // Note that this doesn't currently clean up clients that haven't been used in a while, so a particularly long
@@ -133,20 +128,12 @@ export class PixieAPIClient extends PixieAPIClientAbstract {
     return client;
   }
 
-  private async getClusterClient(cluster: string | ClusterConfig) {
-    let id: string;
-    let passthroughClusterAddress: string;
-    let attachCredentials = false;
-
-    if (typeof cluster === 'string') {
-      id = cluster;
-    } else {
-      ({ id, passthroughClusterAddress, attachCredentials } = cluster);
-    }
+  private async getClusterClient(cluster: ClusterConfig) {
+    const { id } = cluster;
 
     return this.clusterConnections.has(id)
       ? Promise.resolve(this.clusterConnections.get(id))
-      : this.createVizierClient({ id, passthroughClusterAddress, attachCredentials });
+      : this.createVizierClient(cluster);
   }
 
   // TODO(nick): Once the authentication model settles down, make this easier to use outside of the browser.
@@ -173,7 +160,7 @@ export class PixieAPIClient extends PixieAPIClientAbstract {
    * @param cluster Which cluster to use. Either just its ID, or a full config. If that cluster has previously been
    *        connected in this session, that connection will be reused without changing its configuration.
    */
-  health(cluster: string | ClusterConfig): Observable<Status> {
+  health(cluster: ClusterConfig): Observable<Status> {
     return from(this.getClusterClient(cluster))
       .pipe(switchMap((client) => client.health()));
   }
@@ -195,14 +182,15 @@ export class PixieAPIClient extends PixieAPIClientAbstract {
    * @param funcs Descriptions of which functions in the script to run, and what to do with their output.
    */
   executeScript(
-    cluster: string | ClusterConfig,
+    cluster: ClusterConfig,
     script: string,
     opts: ExecuteScriptOptions,
     funcs: VizierQueryFunc[] = [],
+    scriptName = '',
   ): Observable<ExecutionStateUpdate> {
     const hasMutation = containsMutation(script);
     return from(this.getClusterClient(cluster))
-      .pipe(switchMap((client) => client.executeScript(script, funcs, hasMutation, opts)));
+      .pipe(switchMap((client) => client.executeScript(script, funcs, hasMutation, opts, scriptName)));
   }
 
   /**

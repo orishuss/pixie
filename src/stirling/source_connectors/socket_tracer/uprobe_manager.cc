@@ -33,7 +33,6 @@
 #include "src/stirling/obj_tools/dwarf_reader.h"
 #include "src/stirling/obj_tools/go_syms.h"
 #include "src/stirling/source_connectors/socket_tracer/bcc_bpf_intf/symaddrs.h"
-#include "src/stirling/source_connectors/socket_tracer/uprobe_symaddrs.h"
 #include "src/stirling/utils/proc_path_tools.h"
 
 DEFINE_bool(stirling_rescan_for_dlopen, false,
@@ -78,6 +77,14 @@ void UProbeManager::NotifyMMapEvent(upid_t upid) {
   }
 }
 
+Status UProbeManager::LogAndAttachUProbe(const bpf_tools::UProbeSpec& spec) {
+  auto s = bcc_->AttachUProbe(spec);
+  if (!s.ok()) {
+    monitor_.AppendProbeStatusRecord("socket_tracer", spec.probe_fn, s, spec.ToJSON());
+  }
+  return s;
+}
+
 StatusOr<int> UProbeManager::AttachUProbeTmpl(const ArrayView<UProbeTmpl>& probe_tmpls,
                                               const std::string& binary,
                                               obj_tools::ElfReader* elf_reader) {
@@ -104,7 +111,7 @@ StatusOr<int> UProbeManager::AttachUProbeTmpl(const ArrayView<UProbeTmpl>& probe
         case BPFProbeAttachType::kEntry:
         case BPFProbeAttachType::kReturn: {
           spec.symbol = symbol_info.name;
-          PL_RETURN_IF_ERROR(bcc_->AttachUProbe(spec));
+          PL_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
           ++uprobe_count;
           break;
         }
@@ -122,7 +129,7 @@ StatusOr<int> UProbeManager::AttachUProbeTmpl(const ArrayView<UProbeTmpl>& probe
           for (const uint64_t& addr : ret_inst_addrs) {
             spec.attach_type = BPFProbeAttachType::kEntry;
             spec.address = addr;
-            PL_RETURN_IF_ERROR(bcc_->AttachUProbe(spec));
+            PL_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
             ++uprobe_count;
           }
           break;
@@ -135,8 +142,10 @@ StatusOr<int> UProbeManager::AttachUProbeTmpl(const ArrayView<UProbeTmpl>& probe
   return uprobe_count;
 }
 
-Status UProbeManager::UpdateOpenSSLSymAddrs(std::filesystem::path libcrypto_path, uint32_t pid) {
-  PL_ASSIGN_OR_RETURN(struct openssl_symaddrs_t symaddrs, OpenSSLSymAddrs(libcrypto_path));
+Status UProbeManager::UpdateOpenSSLSymAddrs(RawFptrManager* fptr_manager,
+                                            std::filesystem::path libcrypto_path, uint32_t pid) {
+  PL_ASSIGN_OR_RETURN(struct openssl_symaddrs_t symaddrs,
+                      OpenSSLSymAddrs(fptr_manager, libcrypto_path, pid));
 
   openssl_symaddrs_map_->UpdateValue(pid, symaddrs);
 
@@ -279,7 +288,11 @@ StatusOr<int> UProbeManager::AttachOpenSSLUProbesOnDynamicLib(uint32_t pid) {
     return error::Internal("libcrypto not found [path = $0]", container_libcrypto.string());
   }
 
-  PL_RETURN_IF_ERROR(UpdateOpenSSLSymAddrs(container_libcrypto, pid));
+  PL_ASSIGN_OR_RETURN(auto reader, ElfReader::Create(container_libcrypto));
+  auto fptr_manager = std::unique_ptr<RawFptrManager>(
+      new RawFptrManager(reader.get(), proc_parser_.get(), container_libcrypto));
+
+  PL_RETURN_IF_ERROR(UpdateOpenSSLSymAddrs(fptr_manager.get(), container_libcrypto, pid));
 
   // Only try probing .so files that we haven't already set probes on.
   auto result = openssl_probed_binaries_.insert(container_libssl);
@@ -289,7 +302,7 @@ StatusOr<int> UProbeManager::AttachOpenSSLUProbesOnDynamicLib(uint32_t pid) {
 
   for (auto spec : kOpenSSLUProbes) {
     spec.binary_path = container_libssl.string();
-    PL_RETURN_IF_ERROR(bcc_->AttachUProbe(spec));
+    PL_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
   }
   return kOpenSSLUProbes.size();
 }
@@ -359,7 +372,7 @@ StatusOr<int> UProbeManager::AttachNodeJsOpenSSLUprobes(uint32_t pid) {
   // Here they are attached on statically linked OpenSSL library (eg. for node).
   for (auto spec : kOpenSSLUProbes) {
     spec.binary_path = host_proc_exe.string();
-    PL_RETURN_IF_ERROR(bcc_->AttachUProbe(spec));
+    PL_RETURN_IF_ERROR(LogAndAttachUProbe(spec));
   }
 
   // These are node-specific probes.
@@ -526,6 +539,8 @@ int UProbeManager::DeployOpenSSLUProbes(const absl::flat_hash_set<md::UPID>& pid
           "Attaching OpenSSL uprobes on dynamic library succeeded for PID $0: $1 probes", pid.pid(),
           count_or.ValueOrDie());
     } else {
+      monitor_.AppendSourceStatusRecord("socket_tracer", count_or.status(),
+                                        "AttachOpenSSLUprobesOnDynamicLib");
       VLOG(1) << absl::Substitute(
           "Attaching OpenSSL uprobes on dynamic library failed for PID $0: $1", pid.pid(),
           count_or.ToString());
@@ -539,6 +554,8 @@ int UProbeManager::DeployOpenSSLUProbes(const absl::flat_hash_set<md::UPID>& pid
           "PID $0: $1 probes",
           pid.pid(), count_or.ValueOrDie());
     } else {
+      monitor_.AppendSourceStatusRecord("socket_tracer", count_or.status(),
+                                        "AttachNodeJsOpenSSLUprobes");
       VLOG(1) << absl::Substitute(
           "Attaching OpenSSL uprobes on executable statically linked OpenSSL library failed for "
           "PID $0: $1",
@@ -612,6 +629,8 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
       StatusOr<int> attach_status =
           AttachGoRuntimeUProbes(binary, elf_reader.get(), dwarf_reader.get(), pid_vec);
       if (!attach_status.ok()) {
+        monitor_.AppendSourceStatusRecord("socket_tracer", attach_status.status(),
+                                          "AttachGoRuntimeUProbes");
         LOG_FIRST_N(WARNING, 10) << absl::Substitute(
             "Failed to attach Go Runtime Uprobes to $0: $1", binary, attach_status.ToString());
       } else {
@@ -624,6 +643,8 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
       StatusOr<int> attach_status =
           AttachGoTLSUProbes(binary, elf_reader.get(), dwarf_reader.get(), pid_vec);
       if (!attach_status.ok()) {
+        monitor_.AppendSourceStatusRecord("socket_tracer", attach_status.status(),
+                                          "AttachGoTLSUProbes");
         LOG_FIRST_N(WARNING, 10) << absl::Substitute("Failed to attach GoTLS Uprobes to $0: $1",
                                                      binary, attach_status.ToString());
       } else {
@@ -636,6 +657,8 @@ int UProbeManager::DeployGoUProbes(const absl::flat_hash_set<md::UPID>& pids) {
       StatusOr<int> attach_status =
           AttachGoHTTP2Probes(binary, elf_reader.get(), dwarf_reader.get(), pid_vec);
       if (!attach_status.ok()) {
+        monitor_.AppendSourceStatusRecord("socket_tracer", attach_status.status(),
+                                          "AttachGoHTTP2Probes");
         LOG_FIRST_N(WARNING, 10) << absl::Substitute("Failed to attach HTTP2 Uprobes to $0: $1",
                                                      binary, attach_status.ToString());
       } else {

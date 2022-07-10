@@ -101,6 +101,43 @@ PIITypeGen IMEIGen() {
   return std::make_pair("<REDACTED_IMEI>", vals);
 }
 
+PIITypeGen IBANGen() {
+  std::vector<std::string> vals{
+      "GB29NWBK60161331926819",
+      "GB29 NWBK 6016 1331 9268 19",
+      "GB29-NWBK-6016-1331-9268-19",
+      "AL47 2121 1009 0000 0002 3569 8741",
+      "AD12 0001 2030 2003 5910 0100",
+      "AT61 1904 3002 3457 3201",
+      "AZ21 NABZ 0000 0000 1370 1000 1944",
+      "BH67 BMAG 0000 1299 1234 56",
+      "BY13 NBRB 3600 9000 0000 2Z00 AB00",
+      "BE68 5390 0754 7034",
+      "BA39 1290 0794 0102 8494",
+      "BR18 0036 0305 0000 1000 9795 493C 1",
+      "BG80 BNBG 9661 1020 3456 78",
+      "CR05 0152 0200 1026 2840 66",
+      "HR12 1001 0051 8630 0016 0",
+      "CY17 0020 0128 0000 0012 0052 7600",
+      "CZ65 0800 0000 1920 0014 5399",
+      "DK50 0040 0440 1162 43",
+      "DO28 BAGR 0000 0001 2124 5361 1324",
+      "SV 62 CENR 00000000000000700025",
+      "EE38 2200 2210 2014 5685",
+      "FO62 6460 0001 6316 34",
+      "FI21 1234 5600 0007 85",
+  };
+  return std::make_pair("<REDACTED_IBAN>", vals);
+}
+
+PIITypeGen SSNGen() {
+  std::vector<std::string> vals{
+      "001-01-0001", "011-11-0011", "111-11-1111", "201-21-0021", "211-11-2011",
+      "211-21-2222", "303-58-8256", "255-77-3200", "593-78-6329",
+  };
+  return std::make_pair("<REDACTED_SSN>", vals);
+}
+
 // These values will be injected into templates, but shouldn't be redacted by the pipeline.
 PIITypeGen NegativeExampleGen() {
   std::vector<std::string> vals{
@@ -112,6 +149,14 @@ PIITypeGen NegativeExampleGen() {
       "1:2:3:4:5:6",
       // Number that looks like a CC but doesn't pass luhn's algo shouldn't be replaced.
       "5555 0000 0000 0000",
+      // Invalid SSNs should not be replaced.
+      "000-12-1234",  // area number can't be 000
+      "666-12-1234",  // area number can't be 666
+      "900-12-1234",  // area number can't be [900-999]
+      "955-12-1234",  // area number can't be [900-999]
+      "999-12-1234",  // area number can't be [900-999]
+      "999-00-9999",  // group number can't be 00
+      "999-12-0000",  // serial number can't be 0000
   };
   return std::make_pair("UNREDACTED", vals);
 }
@@ -218,8 +263,9 @@ TEST_P(RedactionTest, basic) {
 }
 
 INSTANTIATE_TEST_SUITE_P(TemplatedRedactionTest, RedactionTest,
-                         ::testing::ValuesIn(TestCaseGen({IPv4Gen(), IPv6Gen(), EmailGen(), CCGen(),
-                                                          IMEIGen(), NegativeExampleGen()})));
+                         ::testing::ValuesIn(TestCaseGen({IBANGen(), IPv4Gen(), IPv6Gen(),
+                                                          EmailGen(), CCGen(), IMEIGen(), SSNGen(),
+                                                          NegativeExampleGen()})));
 
 }  // namespace builtins
 }  // namespace carnot

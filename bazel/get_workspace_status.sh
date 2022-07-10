@@ -38,7 +38,12 @@ then
     echo "STABLE_BUILD_TAG $(cat VERSION)"
     echo "STABLE_BUILD_NUMBER ${BUILD_NUMBER}"
     echo "STABLE_BUILD_SCM_STATUS Distribution"
+    echo "STABLE_BUILT_BY jenkins"
 
+    # Build buddy tags.
+    echo "COMMIT_SHA $(cat GIT_COMMIT)"
+    echo "VERSION $(cat VERSION)"
+    echo "GIT_TREE_STATUS Clean"
     exit 0
 fi
 
@@ -48,8 +53,6 @@ if [[ $? != 0 ]];
 then
     exit 1
 fi
-echo "STABLE_BUILD_SCM_REVISION ${git_rev}"
-
 
 # Check whether there are any uncommitted changes.
 git diff-index --quiet HEAD --
@@ -60,13 +63,15 @@ else
     tree_status="Modified"
 fi
 
-echo "STABLE_BUILD_SCM_STATUS ${tree_status}"
-
 # Use 0.0.0-dev for all dev build versions. We don't have a version number that is
 # shared accross all our binaries which makes it hard to semantically version.
-echo "BUILD_TAG 0.0.0-dev"
+echo "STABLE_BUILD_SCM_REVISION ${git_rev}"
 echo "STABLE_BUILD_TAG 0.0.0-dev"
 echo "STABLE_BUILD_NUMBER 0"
+echo "STABLE_BUILD_SCM_STATUS ${tree_status}"
+echo "STABLE_BUILT_BY ${USER}"
 
-echo "BUILD_TAG 0.0.0-dev"
-echo "BUILD_NUMBER 0"
+# Build buddy variables.
+echo "COMMIT_SHA ${git_rev}"
+echo "VERSION 0.0.0-dev"
+echo "GIT_TREE_STATUS ${tree_status}"

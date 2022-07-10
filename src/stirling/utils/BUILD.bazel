@@ -30,6 +30,7 @@ pl_cc_library(
     deps = [
         "//src/common/exec:cc_library",
         "//src/common/fs:cc_library",
+        "//src/common/metrics:cc_library",
         "//src/common/minitar:cc_library",
         "//src/common/system:cc_library",
         "//src/common/zlib:cc_library",
@@ -102,7 +103,7 @@ pl_cc_test(
 # One can test the container environment by running this test after executing $PIXIE_ROOT/scripts/run_docker.sh.
 # Also works directly on the OS, but should also be run inside a container for coverage purposes.
 pl_cc_test(
-    name = "proc_path_tools_container_test",
+    name = "proc_path_tools_container_bpf_test",
     srcs = ["proc_path_tools_test.cc"],
     data = ["//src/common/testing/test_utils:sleep_container_image.tar"],
     defines = [
@@ -112,7 +113,10 @@ pl_cc_test(
     # Specifically, we require the `--pid=host -v /:/host -v /sys:/sys --env PL_HOST_PATH=/host`
     # which only the BPF jenkins jobs provide.
     # Locally, this test can be run without sudo_run_bazel.sh, unlike other BPF tests.
-    tags = ["requires_bpf"],
+    tags = [
+        "cpu:16",
+        "requires_bpf",
+    ],
     deps = [
         ":cc_library",
         "//src/common/testing/test_utils:cc_library",
@@ -158,7 +162,10 @@ pl_cc_test(
     name = "detect_application_bpf_test",
     timeout = "moderate",
     srcs = ["detect_application_bpf_test.cc"],
-    tags = ["requires_bpf"],
+    tags = [
+        "cpu:16",
+        "requires_bpf",
+    ],
     deps = [
         ":cc_library",
         "//src/stirling/source_connectors/socket_tracer/testing:container_images",

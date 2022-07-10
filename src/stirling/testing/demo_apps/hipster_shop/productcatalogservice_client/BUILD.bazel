@@ -14,8 +14,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-load("@io_bazel_rules_docker//go:image.bzl", "go_image")
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("//bazel:go_image_alias.bzl", "go_image")
 
 package(default_visibility = ["//src/stirling:__subpackages__"])
 
@@ -27,6 +27,7 @@ go_library(
         "//src/stirling/testing/demo_apps/hipster_shop/proto:demo_pl_go_proto",
         "@com_github_sirupsen_logrus//:logrus",
         "@org_golang_google_grpc//:go_default_library",
+        "@org_golang_google_grpc//credentials/insecure",
     ],
 )
 
