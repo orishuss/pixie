@@ -13,52 +13,30 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-
-load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 
 package(default_visibility = ["//privy:__subpackages__"])
 
-py_test(
-    name = "test_providers",
-    srcs = ["test_providers.py"],
-    srcs_version = "PY3",
-    deps = [
-        "//privy:privy_library",
-    ],
-)
-
-py_test(
-    name = "test_json",
-    srcs = ["test_json.py"],
-    data = [
-        "openapi.json",
-        "openapi2.json",
-    ],
-    srcs_version = "PY3",
-    deps = [
-        "//privy:privy_library",
-    ],
-)
-
-py_test(
-    name = "test_sql",
-    srcs = ["test_sql.py"],
-    data = [
-        "openapi.json",
-        "openapi2.json",
-    ],
-    srcs_version = "PY3",
-    deps = [
-        "//privy:privy_library",
-    ],
-)
-
 py_library(
-    name = "privy_tests",
+    name = "privy_train",
     testonly = True,
     srcs = glob([
         "*.py",
         "**/*.py",
     ]),
     srcs_version = "PY3",
+)
+
+py_binary(
+    name = "privy_lstm_binary",
+    testonly = True,
+    srcs = [
+        "lstm_binary.py",
+    ],
+    main = "lstm_binary.py",
+    srcs_version = "PY3",
+    deps = [
+        "//privy:privy_library",
+        "@rules_python//python/runfiles",
+    ],
 )

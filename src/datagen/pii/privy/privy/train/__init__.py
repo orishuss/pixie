@@ -13,23 +13,3 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-
-import random
-from privy.providers.english_us import English_US
-
-
-class Providers:
-    def __init__(self):
-        self.regions = [
-            English_US(),
-        ]
-
-    def pick_random_region(self):
-        """Pick a random region/language specific provider to execute a GenericProvider method on"""
-        return random.choice(self.regions)
-
-    def get_regions(self):
-        return self.regions
-
-    def __repr__(self):
-        return f"Providers.regions - {self.regions}"

@@ -17,10 +17,11 @@ import ast
 import logging
 import random
 from enum import Enum
+from copy import deepcopy
+from typing import Union, Optional, Tuple
 import schemathesis
 from hypothesis import given
 from hypothesis import strategies as st
-from privy.chosen_providers import Providers
 
 
 class ParamType(Enum):
@@ -36,11 +37,11 @@ class SchemaHooks:
     """initialize schemathesis hook to replace default data generation strategies for api path parameters
     and track the pii_types present in a given request payload"""
 
-    def __init__(self):
-        self.schema_analyzer = self.SchemaAnalyzer()
+    def __init__(self, args):
+        self.schema_analyzer = self.SchemaAnalyzer(args)
         self.payload_generator_hook()
 
-    def payload_generator_hook(self):
+    def payload_generator_hook(self) -> None:
         """apply this hook to api schema parsing globally, identifying pii types in the request payloads"""
 
         @schemathesis.hooks.register
@@ -79,30 +80,38 @@ class SchemaHooks:
     class SchemaAnalyzer:
         """Analyze an openapi schema and assign pii values to the corresponding parameter_name in the case_attr"""
 
-        def __init__(self):
-            # store tuples of (pii_type, category)
+        def __init__(self, args):
             self.pii_types = {
-                ParamType.PATH: [],
-                ParamType.QUERY: [],
-                ParamType.HEADER: [],
-                ParamType.COOKIE: [],
+                ParamType.PATH: set(),
+                ParamType.QUERY: set(),
+                ParamType.HEADER: set(),
+                ParamType.COOKIE: set(),
             }
-            self.providers = Providers()
-            self.logger = logging.getLogger("privy")
+            self.providers = args.region
+            self.log = logging.getLogger("privy")
 
-        def has_pii(self, parameter_type):
+        def deepcopy_pii_types(self, parameter_type: ParamType) -> list[str]:
+            """deepcopy pii_types list for a given parameter_type"""
+            return deepcopy(self.pii_types[parameter_type])
+
+        def overwrite_pii_types(self, parameter_type: ParamType, pii_types: list[str]) -> None:
+            """overwrite pii_types list for a given parameter_type"""
+            self.pii_types[parameter_type] = pii_types
+
+        def has_pii(self, parameter_type: ParamType) -> bool:
             return len(self.pii_types[parameter_type]) > 0
 
-        def get_pii_types(self, parameter_type):
+        def get_pii_types(self, parameter_type: ParamType) -> list[str]:
             return self.pii_types[parameter_type]
 
-        def add_pii_type(self, parameter_type, pii_type, category):
-            self.pii_types[parameter_type].append((pii_type, category))
+        def add_pii_type(self, parameter_type: ParamType, pii_type: str) -> None:
+            self.pii_types[parameter_type].add(pii_type)
 
-        def clear_pii_types(self, parameter_type):
+        def clear_pii_types(self, parameter_type: ParamType) -> None:
             self.pii_types[parameter_type].clear()
 
-        def assign_parameters(self, name, enum, schema, type_, case_attr, parameter_type):
+        def assign_parameters(self, name: str, enum: Optional[Union[str, list]], schema: Optional[dict],
+                              type_: Optional[Union[str, bool]], case_attr: dict, parameter_type: ParamType):
             """assign a provider to a given parameter_name in the case_attr"""
             # Check for enum
             if self.check_for_enum(name, enum, schema, case_attr):
@@ -120,12 +129,12 @@ class SchemaHooks:
                 return case_attr[name]
             # last resort, assign string value
             if name:
-                self.logger.debug(
-                    f"{name} |could not be matched. Assigning string...| ")
-                _, pii = self.providers.pick_random_region().get_nonpii("string")
-                case_attr[name] = pii
+                self.log.debug(f"{name} |could not be matched. Assigning string...| ")
+                nonpii = self.providers.get_nonpii_provider("string")
+                case_attr[name] = nonpii.template_name
 
-        def check_for_pii_keywords(self, name, type_, schema, case_attr, parameter_type):
+        def check_for_pii_keywords(self, name: str, schema: Optional[dict], type_: Optional[Union[str, bool]],
+                                   case_attr: dict, parameter_type: ParamType) -> Optional[bool]:
             """check if a given parameter name or schema contains a pii keyword and, if so, assign pii"""
             if name and self.lookup_pii_provider(
                 keyword=name,
@@ -165,7 +174,8 @@ class SchemaHooks:
                     case_attr[name] = random.choice(["True", "False"])
                     return True
 
-        def check_for_nonpii_keywords(self, name, type_, schema, case_attr):
+        def check_for_nonpii_keywords(self, name: str, schema: Optional[dict],
+                                      type_: Optional[Union[str, bool]], case_attr: dict) -> Optional[bool]:
             """check if a given parameter name or schema contains a non-pii keyword and, if so, assign pii"""
             if name and self.lookup_nonpii_provider(keyword=name, parameter_name=name, case_attr=case_attr):
                 return True
@@ -191,38 +201,34 @@ class SchemaHooks:
                     case_attr[name] = random.choice(["True", "False"])
                     return True
 
-        def lookup_pii_provider(
-            self, keyword, parameter_name, case_attr, parameter_type
-        ):
+        def lookup_pii_provider(self, keyword: str, parameter_name: str, case_attr: dict,
+                                parameter_type: ParamType) -> Optional[Tuple[str, str]]:
             """lookup pii provider for a given keyword and, if a match is found, assign pii for this parameter_name
             and add this pii type to the pii_types list for this parameter_type"""
-            for region in self.providers.get_regions():
-                label_pii_tuple = region.get_pii(keyword)
-                if label_pii_tuple:
-                    label, pii, category = label_pii_tuple
-                    self.logger.debug(
-                        f"{parameter_name} |matched this pii provider| {label} |and this category| {category}"
-                    )
-                    # assign generated pii value to this parameter
-                    case_attr[parameter_name] = pii
-                    self.add_pii_type(parameter_type, label, category)
-                    return (label, pii)
+            pii = self.providers.get_pii_provider(keyword)
+            if pii:
+                self.log.debug(
+                    f"{parameter_name} |matched this pii provider| {pii.template_name}"
+                )
+                # assign string "{{template_name}}"" of matched PII provider to this parameter
+                case_attr[parameter_name] = f"{{{{{pii.template_name}}}}}"
+                self.add_pii_type(parameter_type, pii.template_name)
+                return (parameter_name, pii.template_name)
 
-        def lookup_nonpii_provider(self, keyword, parameter_name, case_attr):
+        def lookup_nonpii_provider(self, keyword: str, parameter_name: str,
+                                   case_attr: dict) -> Optional[Tuple[str, str]]:
             """lookup nonpii provider for a given keyword and, if a match is found,
             assign nonpii for this parameter_name"""
-            for region in self.providers.get_regions():
-                label_nonpii_tuple = region.get_nonpii(keyword)
-                if label_nonpii_tuple:
-                    label, nonpii = label_nonpii_tuple
-                    self.logger.debug(
-                        f"{parameter_name} |matched this nonpii provider| {label}"
-                    )
-                    # assign generated nonpii value to this parameter
-                    case_attr[parameter_name] = nonpii
-                    return (label, nonpii)
+            nonpii = self.providers.get_nonpii_provider(keyword)
+            if nonpii:
+                self.log.debug(
+                    f"{parameter_name} |matched this nonpii provider| {nonpii.template_name}"
+                )
+                # assign generated nonpii value to this parameter
+                case_attr[parameter_name] = f"{{{{{nonpii.template_name}}}}}"
+                return (parameter_name, nonpii.template_name)
 
-        def check_for_regex_pattern(self, name, schema, case_attr):
+        def check_for_regex_pattern(self, name: str, schema: Optional[dict], case_attr: dict) -> Optional[bool]:
             """check if a given parameter name or schema contains a regex pattern and, if so, assign pii"""
             if name and schema:
                 for schema_key, schema_val in schema.items():
@@ -233,15 +239,16 @@ class SchemaHooks:
                         return True
 
         @given(data=st.data())
-        def generate_value_from_regex(self, parameter_name, regex, case_attr, data):
+        def generate_value_from_regex(self, parameter_name: str, regex: str, case_attr: dict, data) -> None:
             """generate a value from a regex pattern"""
             regex_value = data.draw(st.from_regex(regex, fullmatch=True))
-            self.logger.debug(
+            self.log.debug(
                 f"{parameter_name} |matched regex| {regex} |generated| {regex_value}"
             )
             case_attr[parameter_name] = regex_value
 
-        def check_for_enum(self, name, enum, schema, case_attr):
+        def check_for_enum(self, name: str, enum: Optional[Union[str, list]], schema: Optional[dict],
+                           case_attr: dict) -> Optional[bool]:
             """check if a given parameter name or schema contains an enum and, if so, assign pii"""
             if enum:
                 self.generate_value_from_enum(
@@ -255,14 +262,15 @@ class SchemaHooks:
                         )
                         return True
 
-        def generate_value_from_enum(self, parameter_name, enum, case_attr):
+        def generate_value_from_enum(self, parameter_name: str, enum: Optional[Union[str, list]],
+                                     case_attr: dict) -> None:
             """generate a random value from an enum"""
             # parse string into python list and select random value
             if isinstance(enum, str):
                 enum = ast.literal_eval(enum)
             if isinstance(enum, list):
                 enum_value = random.choice(enum)
-                self.logger.debug(
+                self.log.debug(
                     f"{parameter_name} |matched enum| {enum} |generated| {enum_value}"
                 )
                 case_attr[parameter_name] = enum_value
