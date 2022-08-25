@@ -31,8 +31,6 @@ func transformKratosUserInfoToUserInfo(kratosUser *idprovider.KratosUserInfo) (*
 		Email: kratosUser.Email,
 		// Stop gap while email server has not been added to the deploy scheme.
 		EmailVerified:    true,
-		PLUserID:         kratosUser.PLUserID,
-		PLOrgID:          kratosUser.PLOrgID,
 		IdentityProvider: kratosIdentityProvider,
 		AuthProviderID:   kratosUser.KratosID,
 	}
@@ -75,19 +73,6 @@ func (a *HydraKratosConnector) GetUserInfo(userID string) (*UserInfo, error) {
 	}
 
 	return transformKratosUserInfoToUserInfo(kratosInfo)
-}
-
-// SetPLMetadata sets the pixielabs related metadata in Kratos.
-func (a *HydraKratosConnector) SetPLMetadata(userID, plOrgID, plUserID string) error {
-	// Grab the original UserInfo.
-	kratosInfo, err := a.Client.GetUserInfo(context.Background(), userID)
-	if err != nil {
-		return err
-	}
-	kratosInfo.PLOrgID = plOrgID
-	kratosInfo.PLUserID = plUserID
-	_, err = a.Client.UpdateUserInfo(context.Background(), userID, kratosInfo)
-	return err
 }
 
 // CreateIdentity creates an identity for the passed in email.

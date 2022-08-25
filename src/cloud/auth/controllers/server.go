@@ -33,16 +33,14 @@ type APIKeyMgr interface {
 
 // UserInfo contains all the info about a user. It's not tied to any specific AuthProvider.
 type UserInfo struct {
+	// The following fields are from the AuthProvider.
 	Email         string
 	EmailVerified bool
 	FirstName     string
 	LastName      string
 	Name          string
 	Picture       string
-	// PLUserID is the ID assigned to the user by Pixie.
-	PLUserID string
-	// PLOrgID is the ID of the Pixie Org that the user belongs to.
-	PLOrgID string
+
 	// IdentityProvider is the name of the provider that the User used to Login. This is distinct
 	// from AuthProviders - there might be many IdentityProviders that a single AuthProvider implements. Ie
 	// google-oauth and github might both be IdentityProviders for Auth0.
@@ -71,8 +69,6 @@ type AuthProvider interface {
 	GetUserIDFromToken(token string) (string, error)
 	// GetUserInfo returns the UserInfo for the userID.
 	GetUserInfo(userID string) (*UserInfo, error)
-	// SetPLMetadata sets the pixielabs related metadata in the auth provider.
-	SetPLMetadata(userID, plOrgID, plUserID string) error
 	// CreateInviteLinkForIdentity creates an invite link for the specific user, identified by the AuthProviderID.
 	CreateInviteLink(authProviderID string) (*CreateInviteLinkResponse, error)
 	// CreateIdentity will create an identity for the corresponding email.
